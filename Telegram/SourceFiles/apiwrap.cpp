@@ -107,6 +107,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/download_manager_mtproto.h"
 #include "storage/file_upload.h"
 #include "storage/storage_account.h"
+#include "paradoks/paradoks_ghost.h"
 
 namespace {
 
@@ -1445,6 +1446,9 @@ void ApiWrap::markContentsRead(
 		if (!item->markContentsRead(true) || !item->isRegular()) {
 			continue;
 		}
+		if (Paradoks::Ghost::Read()) {
+			continue;
+		}
 		if (const auto channel = item->history()->peer->asChannel()) {
 			channelMarkedIds[channel].push_back(MTP_int(item->id));
 		} else {
@@ -1467,7 +1471,9 @@ void ApiWrap::markContentsRead(
 }
 
 void ApiWrap::markContentsRead(not_null<HistoryItem*> item) {
-	if (!item->markContentsRead(true) || !item->isRegular()) {
+	if (!item->markContentsRead(true)
+		|| !item->isRegular()
+		|| Paradoks::Ghost::Read()) {
 		return;
 	}
 	const auto ids = MTP_vector<MTPint>(1, MTP_int(item->id));

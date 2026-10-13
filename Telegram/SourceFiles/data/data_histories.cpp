@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_element.h"
 #include "core/application.h"
 #include "apiwrap.h"
+#include "paradoks/paradoks_ghost.h"
 
 namespace Data {
 namespace {
@@ -719,6 +720,10 @@ void Histories::sendReadRequests() {
 			DEBUG_LOG(("Reading: skipping zero till."));
 			continue;
 		} else if (state.willReadWhen <= now) {
+			if (Paradoks::Ghost::Read()) {
+				state.willReadTill = 0;
+				continue;
+			}
 			DEBUG_LOG(("Reading: sending with till %1."
 				).arg(state.willReadTill.bare));
 			sendReadRequest(history, state);

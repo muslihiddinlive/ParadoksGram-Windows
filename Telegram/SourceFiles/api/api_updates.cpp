@@ -75,6 +75,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/editor/iv_editor_session.h"
 #include "ui/boxes/confirm_box.h"
 #include "apiwrap.h"
+#include "paradoks/paradoks_ghost.h"
 #include "ui/text/format_values.h" // Ui::FormatPhone
 
 namespace Api {
@@ -1027,11 +1028,11 @@ void Updates::updateOnline(crl::time lastNonIdleTime, bool gotOtherOffline) {
 		_lastSetOnline = ms;
 		if (!Core::Quitting()) {
 			_onlineRequest = api().request(MTPaccount_UpdateStatus(
-				MTP_bool(!isOnline)
+				MTP_bool(!isOnline || Paradoks::Ghost::Online())
 			)).send();
 		} else {
 			_onlineRequest = api().request(MTPaccount_UpdateStatus(
-				MTP_bool(!isOnline)
+				MTP_bool(!isOnline || Paradoks::Ghost::Online())
 			)).done([=] {
 				Core::App().quitPreventFinished();
 			}).fail([=] {

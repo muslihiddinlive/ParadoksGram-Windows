@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "lang/lang_keys.h"
 #include "apiwrap.h"
+#include "paradoks/paradoks_ghost.h"
 
 namespace Data {
 namespace {
@@ -1004,6 +1005,9 @@ void RepliesList::sendReadTillRequest() {
 	}
 	const auto api = &_history->session().api();
 	api->request(base::take(_readRequestId)).cancel();
+	if (Paradoks::Ghost::Read()) {
+		return;
+	}
 
 	_readRequestId = api->request(MTPmessages_ReadDiscussion(
 		_history->peer->input(),

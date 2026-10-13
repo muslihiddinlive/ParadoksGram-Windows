@@ -26,6 +26,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "ui/layers/show.h"
 #include "ui/text/text_utilities.h"
+#include "paradoks/paradoks_ghost.h"
 
 namespace Data {
 namespace {
@@ -1394,6 +1395,9 @@ void Stories::toggleHidden(
 void Stories::sendMarkAsReadRequest(
 		not_null<PeerData*> peer,
 		StoryId tillId) {
+	if (Paradoks::Ghost::Stories()) {
+		return;
+	}
 	const auto peerId = peer->id;
 	_markReadRequests.emplace(peerId);
 	const auto finish = [=] {
@@ -1438,6 +1442,10 @@ void Stories::sendMarkAsReadRequests() {
 }
 
 void Stories::sendIncrementViewsRequests() {
+	if (Paradoks::Ghost::Stories()) {
+		_incrementViewsPending.clear();
+		return;
+	}
 	if (_incrementViewsPending.empty()) {
 		return;
 	}

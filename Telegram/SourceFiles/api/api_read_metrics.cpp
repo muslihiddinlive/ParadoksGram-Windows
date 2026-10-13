@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_read_metrics.h"
 
 #include "apiwrap.h"
+#include "paradoks/paradoks_ghost.h"
 #include "data/data_peer.h"
 
 namespace Api {
@@ -32,6 +33,10 @@ void ReadMetrics::add(
 }
 
 void ReadMetrics::send() {
+	if (Paradoks::Ghost::Read()) {
+		_pending.clear();
+		return;
+	}
 	for (auto i = _pending.begin(); i != _pending.end();) {
 		if (_requests.contains(i->first)) {
 			++i;
