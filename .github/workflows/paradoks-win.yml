@@ -161,7 +161,7 @@ jobs:
             echo "TDESKTOP_BUILD_API=-D TDESKTOP_API_TEST=ON" >> $GITHUB_ENV
           fi
 
-      - name: ParadoksGram build.
+      - name: ParadoksGram configure.
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
 
@@ -170,9 +170,30 @@ jobs:
           -D CMAKE_CONFIGURATION_TYPES=Release ^
           -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
-          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON > %GITHUB_WORKSPACE%\configure.log 2>&1
+          set RESULT=%ERRORLEVEL%
+          type %GITHUB_WORKSPACE%\configure.log
+          exit /b %RESULT%
 
-          cmake --build ..\out --config Release --parallel
+      - name: ParadoksGram build.
+        run: |
+          cd %TBUILD%\%REPO_NAME%\Telegram
+          cmake --build ..\out --config Release --parallel > %GITHUB_WORKSPACE%\build.log 2>&1
+          set RESULT=%ERRORLEVEL%
+          type %GITHUB_WORKSPACE%\build.log
+          exit /b %RESULT%
+
+      - name: Report errors.
+        if: failure()
+        shell: bash
+        run: |
+          for name in configure build; do
+            f="$GITHUB_WORKSPACE/$name.log"
+            [ -f "$f" ] || continue
+            msg=$(grep -aiE 'error|fatal|failed|cannot|undefined' "$f" | head -n 30 | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}')
+            [ -n "$msg" ] || msg=$(tail -n 30 "$f" | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=$name.log::$msg"
+          done
 
       - name: Package.
         shell: bash
