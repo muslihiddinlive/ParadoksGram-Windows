@@ -94,8 +94,10 @@ jobs:
             !${{ env.LibrariesPath }}\[qQ]t[_-]*
             ${{ env.LibrariesPath }}\cache_keys\*
             !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
-          key: ${{ runner.OS }}-x64-libs-v3-${{ env.CACHE_KEY }}
-          restore-keys: ${{ runner.OS }}-x64-libs-v3-
+          key: ${{ runner.OS }}-x64-libs-v4-${{ env.CACHE_KEY }}
+          restore-keys: |
+            ${{ runner.OS }}-x64-libs-v4-
+            ${{ runner.OS }}-x64-libs-v3-
 
       - name: Qt cache.
         id: cache-qt
@@ -104,13 +106,15 @@ jobs:
           path: |
             ${{ env.LibrariesPath }}\[qQ]t[_-]*
             ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
-          key: ${{ runner.OS }}-x64-qt-${{ env.CACHE_KEY }}
-          restore-keys: ${{ runner.OS }}-x64-qt-
+          key: ${{ runner.OS }}-x64-qt-v2-${{ env.CACHE_KEY }}
+          restore-keys: |
+            ${{ runner.OS }}-x64-qt-v2-
+            ${{ runner.OS }}-x64-qt-
 
       - name: Libraries.
         timeout-minutes: 300
         run: |
-          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat skip-release silent
+          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat silent
 
       - name: Free up some disk space.
         if: always()
@@ -137,7 +141,7 @@ jobs:
             !${{ env.LibrariesPath }}\[qQ]t[_-]*
             ${{ env.LibrariesPath }}\cache_keys\*
             !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
-          key: ${{ runner.OS }}-x64-libs-v3-${{ env.CACHE_KEY }}
+          key: ${{ runner.OS }}-x64-libs-v4-${{ env.CACHE_KEY }}
 
       - name: Save Qt cache.
         if: always() && steps.cache-qt.outputs.cache-hit != 'true'
@@ -146,7 +150,7 @@ jobs:
           path: |
             ${{ env.LibrariesPath }}\[qQ]t[_-]*
             ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
-          key: ${{ runner.OS }}-x64-qt-${{ env.CACHE_KEY }}
+          key: ${{ runner.OS }}-x64-qt-v2-${{ env.CACHE_KEY }}
 
       - name: Choose API credentials.
         shell: bash
