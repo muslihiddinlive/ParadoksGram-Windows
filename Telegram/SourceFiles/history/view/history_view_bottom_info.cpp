@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "data/data_message_reactions.h"
 #include "window/window_session_controller.h"
+#include "paradoks/paradoks_store.h"
 #include "styles/style_chat.h"
 #include "styles/style_credits.h"
 
@@ -151,7 +152,7 @@ int BottomInfo::firstLineWidth() const {
 }
 
 bool BottomInfo::isWide() const {
-	return (_data.flags & Data::Flag::Edited)
+	return (_data.flags & (Data::Flag::Edited | Data::Flag::ParadoksDeleted))
 		|| _data.scheduleRepeatPeriod
 		|| !_data.author.isEmpty()
 		|| !_views.isEmpty()
@@ -487,7 +488,10 @@ void BottomInfo::layoutDateText() {
 	const auto editedPrimary = !updated
 		&& (_data.flags & Data::Flag::EditedPrimary)
 		&& !(_data.flags & Data::Flag::ForwardedDate);
-	const auto edited = editedPrimary
+	const auto deletedMark = (_data.flags & Data::Flag::ParadoksDeleted)
+		? u"o'chirilgan "_q
+		: QString();
+	const auto edited = deletedMark + (editedPrimary
 		? QString()
 		: updated
 		? (tr::lng_ephemeral_updated(tr::now) + ' ')
@@ -497,7 +501,7 @@ void BottomInfo::layoutDateText() {
 		? (tr::lng_approximate(tr::now) + ' ')
 		: _data.scheduleRepeatPeriod
 		? (SchedulePeriodText(_data.scheduleRepeatPeriod) + ' ')
-		: QString();
+		: QString());
 	const auto author = _data.author;
 	const auto prefix = !author.isEmpty() ? u", "_q : QString();
 	const auto date = editedPrimary
@@ -700,6 +704,9 @@ BottomInfo::Data BottomInfoDataFromMessage(not_null<Message*> message) {
 	}
 	if (IsAnchoredEphemeral(item)) {
 		result.flags |= Flag::Updated;
+	}
+	if (Paradoks::IsDeleted(item)) {
+		result.flags |= Flag::ParadoksDeleted;
 	}
 	if (const auto views = item->Get<HistoryMessageViews>()) {
 		if (views->views.count >= 0) {

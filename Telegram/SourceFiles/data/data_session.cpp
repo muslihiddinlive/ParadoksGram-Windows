@@ -6,6 +6,8 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_session.h"
+#include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_store.h"
 
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
@@ -3084,7 +3086,12 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 	}, [&](const MTPDmessageService &data) {
 		existing->applyEdition(data);
 	}, [&](const auto &data) {
-		existing->applyEdition(HistoryMessageEdition(_session, data));
+		auto edition = HistoryMessageEdition(_session, data);
+		const auto &oldText = existing->originalText().text;
+		if (oldText != edition.textWithEntities.text) {
+			Paradoks::LogEdit(existing, oldText);
+		}
+		existing->applyEdition(std::move(edition));
 	});
 }
 
@@ -3361,6 +3368,9 @@ void Session::processMessagesDeleted(
 	for (const auto &messageId : data) {
 		const auto i = list ? list->find(messageId.v) : Messages::iterator();
 		if (list && i != list->end()) {
+			if (Paradoks::KeepDeleted(i->second)) {
+				continue;
+			}
 			const auto history = i->second->history();
 			toDestroy.push_back(i->second);
 			historiesToCheck.emplace(history);
@@ -3386,6 +3396,9 @@ void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
 	auto historiesToCheck = base::flat_set<not_null<History*>>();
 	for (const auto &messageId : data) {
 		if (const auto item = nonChannelMessage(messageId.v)) {
+			if (Paradoks::KeepDeleted(item)) {
+				continue;
+			}
 			const auto history = item->history();
 			toDestroy.push_back(item);
 			historiesToCheck.emplace(history);

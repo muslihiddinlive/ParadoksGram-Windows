@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/sections/settings_advanced.h"
+#include "paradoks/paradoks_ui.h"
 
 #include "settings/settings_common_session.h"
 
@@ -1281,6 +1282,14 @@ void BuildExportSection(SectionBuilder &builder) {
 		.icon = { &st::menuIconExperimental },
 		.onClick = [showOther] { showOther(Experimental::Id()); },
 		.keywords = { u"experimental"_q, u"beta"_q, u"features"_q },
+	});
+
+	builder.addButton({
+		.id = u"advanced/paradoks"_q,
+		.title = rpl::single(u"ParadoksGram"_q),
+		.icon = { &st::menuIconExperimental },
+		.onClick = [=] { controller->show(Box(Paradoks::SettingsBox)); },
+		.keywords = { u"paradoksgram"_q, u"ghost"_q, u"deleted"_q },
 	});
 }
 

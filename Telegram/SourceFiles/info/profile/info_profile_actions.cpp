@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_actions.h"
+#include "paradoks/paradoks_config.h"
 
 #include "api/api_blocked_peers.h"
 #include "api/api_chat_participants.h"
@@ -152,6 +153,11 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 	.description = "Show when you join Channel under its Description.",
 });
 
+[[nodiscard]] bool ShowPeerId() {
+	return ShowPeerIdBelowAbout.value()
+		|| Paradoks::Enabled(Paradoks::Flag::ShowId);
+}
+
 [[nodiscard]] rpl::producer<TextWithEntities> UsernamesSubtext(
 		not_null<PeerData*> peer,
 		rpl::producer<QString> fallback) {
@@ -234,7 +240,7 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 	return AboutValue(
 		peer
 	) | rpl::map([=](TextWithEntities &&value) {
-		if (ShowPeerIdBelowAbout.value()) {
+		if (ShowPeerId()) {
 			using namespace Ui::Text;
 			if (!value.empty()) {
 				value.append("\n\n");
@@ -249,7 +255,7 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 			if (const auto channel = peer->asChannel()) {
 				if (!channel->amCreator() && channel->inviteDate) {
 					if (!value.empty()) {
-						if (ShowPeerIdBelowAbout.value()) {
+						if (ShowPeerId()) {
 							value.append("\n");
 						} else {
 							value.append("\n\n");
@@ -276,7 +282,7 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 void SetupAboutPeerIdDrag(
 		not_null<Ui::FlatLabel*> label,
 		not_null<PeerData*> peer) {
-	if (!ShowPeerIdBelowAbout.value()) {
+	if (!ShowPeerId()) {
 		return;
 	}
 	const auto id = QString::number(peer->id.value & PeerId::kChatTypeMask);
