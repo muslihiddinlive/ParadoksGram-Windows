@@ -230,3 +230,35 @@ jobs:
             --title "ParadoksGram Windows build ${{ github.run_number }}" \
             --notes "Commit ${GITHUB_SHA::7}" \
             --prerelease
+
+      - name: Notify Telegram.
+        if: always()
+        shell: bash
+        env:
+          BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "No Telegram secrets, skipping."
+            exit 0
+          fi
+          api="https://api.telegram.org/bot$BOT_TOKEN"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          zip=ParadoksGram-Windows-x64.zip
+
+          if [ "$JOB_STATUS" != "success" ]; then
+            text=$(printf 'ParadoksGram Windows #%s: %s\nCommit %s\n%s' "$GITHUB_RUN_NUMBER" "$JOB_STATUS" "${GITHUB_SHA::7}" "$run_url")
+            curl -sS -o /dev/null "$api/sendMessage" -d chat_id="$CHAT_ID" --data-urlencode text="$text" || true
+            exit 0
+          fi
+
+          release_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/build-$GITHUB_RUN_NUMBER"
+          caption=$(printf 'ParadoksGram Windows #%s: success\nCommit %s\n%s' "$GITHUB_RUN_NUMBER" "${GITHUB_SHA::7}" "$release_url")
+          size=$(stat -c %s "$zip" 2>/dev/null || echo 0)
+          # Bot API uploads are capped at 50 MB, so bigger builds go as a link.
+          if [ "$size" -gt 0 ] && [ "$size" -lt 52000000 ]; then
+            curl -sS -o /dev/null "$api/sendDocument" -F chat_id="$CHAT_ID" -F document=@"$zip" -F caption="$caption" || true
+          else
+            curl -sS -o /dev/null "$api/sendMessage" -d chat_id="$CHAT_ID" --data-urlencode text="$caption" || true
+          fi
