@@ -114,7 +114,10 @@ jobs:
       - name: Libraries.
         timeout-minutes: 300
         run: |
-          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat silent
+          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat silent > %GITHUB_WORKSPACE%\libraries.log 2>&1
+          set RESULT=%ERRORLEVEL%
+          type %GITHUB_WORKSPACE%\libraries.log
+          exit /b %RESULT%
 
       - name: Free up some disk space.
         if: always()
@@ -191,13 +194,16 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for name in configure build; do
+          for name in libraries configure build; do
             f="$GITHUB_WORKSPACE/$name.log"
             [ -f "$f" ] || continue
-            msg=$(grep -aiE 'error|fatal|failed|cannot|undefined' "$f" | head -n 30 | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}')
-            [ -n "$msg" ] || msg=$(tail -n 30 "$f" | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}')
-            echo "::error title=$name.log::$msg"
+            enc() { sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}'; }
+            errs=$(grep -aiE 'error|fatal|failed|cannot|undefined' "$f" | head -n 25 | enc)
+            tail=$(tail -n 30 "$f" | enc)
+            echo "::error title=$name.log errors::$errs"
+            echo "::error title=$name.log tail::$tail"
           done
+          df -h /c /d 2>/dev/null | enc | sed 's/^/::notice title=disk::/'
 
       - name: Package.
         shell: bash
