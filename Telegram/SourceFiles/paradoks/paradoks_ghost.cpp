@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_channel.h"
 #include "data/data_peer.h"
 #include "history/history.h"
+#include "history/history_item.h"
 #include "main/main_session.h"
 
 namespace Paradoks::Ghost {

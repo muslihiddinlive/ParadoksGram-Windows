@@ -212,7 +212,7 @@ jobs:
       - name: ParadoksGram build.
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
-          cmake --build ..\out --config Release --parallel > %GITHUB_WORKSPACE%\build.log 2>&1
+          cmake --build ..\out --config Release --parallel 1 -- /p:CL_MPCount=4 > %GITHUB_WORKSPACE%\build.log 2>&1
           set RESULT=%ERRORLEVEL%
           type %GITHUB_WORKSPACE%\build.log
           exit /b %RESULT%
