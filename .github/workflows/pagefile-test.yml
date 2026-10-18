@@ -1,0 +1,55 @@
+name: Pagefile test.
+
+on:
+  push:
+    paths:
+      - '.github/workflows/pagefile-test.yml'
+
+permissions: {}
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Memory before.
+        shell: pwsh
+        run: |
+          $os = Get-CimInstance Win32_OperatingSystem
+          $usage = Get-CimInstance Win32_PageFileUsage | ForEach-Object { "$($_.Name) alloc=$($_.AllocatedBaseSize)MB" }
+          $cs = Get-CimInstance Win32_ComputerSystem
+          $msg = "RAM=$([math]::Round($os.TotalVisibleMemorySize/1MB,1))G virtual=$([math]::Round($os.TotalVirtualMemorySize/1MB,1))G auto=$($cs.AutomaticManagedPagefile) pagefiles=[$($usage -join '; ')]"
+          echo "::notice title=before::$msg"
+
+      - name: Inline pagefile on D.
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $cs = Get-CimInstance Win32_ComputerSystem
+          if ($cs.AutomaticManagedPagefile) {
+            Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile = $false}
+          }
+          $name = 'D:\pagefile.sys'
+          $setting = Get-CimInstance Win32_PageFileSetting | Where-Object { $_.Name -eq $name }
+          if (-not $setting) {
+            New-CimInstance -ClassName Win32_PageFileSetting -Property @{Name = $name} | Out-Null
+            $setting = Get-CimInstance Win32_PageFileSetting | Where-Object { $_.Name -eq $name }
+          }
+          Set-CimInstance -InputObject $setting -Property @{InitialSize = [uint32]49152; MaximumSize = [uint32]49152}
+          $os = Get-CimInstance Win32_OperatingSystem
+          echo "::notice title=inline::virtual=$([math]::Round($os.TotalVirtualMemorySize/1MB,1))G settings=$((Get-CimInstance Win32_PageFileSetting | ForEach-Object { $_.Name + ' ' + $_.InitialSize }) -join '; ')"
+
+      - name: Action pagefile on D.
+        uses: al-cheb/configure-pagefile-action@v1.4
+        continue-on-error: true
+        with:
+          minimum-size: 48GB
+          maximum-size: 48GB
+          disk-root: "D:"
+
+      - name: Memory after.
+        shell: pwsh
+        run: |
+          $os = Get-CimInstance Win32_OperatingSystem
+          $usage = Get-CimInstance Win32_PageFileUsage | ForEach-Object { "$($_.Name) alloc=$($_.AllocatedBaseSize)MB" }
+          echo "::notice title=after::virtual=$([math]::Round($os.TotalVirtualMemorySize/1MB,1))G pagefiles=[$($usage -join '; ')]"
