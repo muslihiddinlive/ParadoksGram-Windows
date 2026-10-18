@@ -31,6 +31,14 @@ jobs:
         shell: cmd
 
     steps:
+      # The runner commits only ~19 GB, which the compiler exhausts (C1060).
+      - name: Bigger pagefile on D.
+        uses: al-cheb/configure-pagefile-action@a3b6ebd6b634da88790d9c58d4b37a7f4a7b8708 # v1.4
+        with:
+          minimum-size: 48GB
+          maximum-size: 48GB
+          disk-root: "D:"
+
       - name: Prepare directories.
         run: |
           mkdir %userprofile%\TBuild\Libraries
