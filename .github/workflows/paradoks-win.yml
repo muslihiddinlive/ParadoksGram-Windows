@@ -168,6 +168,11 @@ jobs:
             echo "TDESKTOP_BUILD_API=-D TDESKTOP_API_TEST=ON" >> $GITHUB_ENV
           fi
 
+      - name: Build output on D drive.
+        run: |
+          mkdir D:\out
+          mklink /d %TBUILD%\%REPO_NAME%\out D:\out
+
       - name: ParadoksGram configure.
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
@@ -182,6 +187,28 @@ jobs:
           type %GITHUB_WORKSPACE%\configure.log
           exit /b %RESULT%
 
+      - name: Disk watchdog.
+        shell: pwsh
+        run: |
+          $script = @'
+          while ($true) {
+            $line = (Get-Date -Format s)
+            foreach ($d in 'C','D') {
+              $free = [math]::Round((Get-PSDrive $d).Free / 1GB, 1)
+              $line += " $d=${free}G"
+              if ($free -lt 3) {
+                "$line LOW DISK, stopping build" | Add-Content "$env:GITHUB_WORKSPACE\disk.log"
+                taskkill /F /T /IM cmake.exe | Out-Null
+                exit
+              }
+            }
+            $line | Add-Content "$env:GITHUB_WORKSPACE\disk.log"
+            Start-Sleep -Seconds 120
+          }
+          '@
+          Set-Content "$env:GITHUB_WORKSPACE\watch.ps1" $script
+          Start-Process pwsh -WindowStyle Hidden -ArgumentList '-NoProfile','-File',"$env:GITHUB_WORKSPACE\watch.ps1"
+
       - name: ParadoksGram build.
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
@@ -194,7 +221,7 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for name in libraries configure build; do
+          for name in libraries configure build disk; do
             f="$GITHUB_WORKSPACE/$name.log"
             [ -f "$f" ] || continue
             enc() { sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}'; }
@@ -209,7 +236,9 @@ jobs:
         shell: bash
         run: |
           mkdir artifact
-          cp "$TBUILD/$REPO_NAME/out/Release/Telegram.exe" artifact/
+          exe=$(find /d/out -maxdepth 3 -name Telegram.exe | head -n 1)
+          echo "Using $exe"
+          cp "$exe" artifact/
           cd artifact
           7z a ../ParadoksGram-Windows-x64.zip Telegram.exe
 
