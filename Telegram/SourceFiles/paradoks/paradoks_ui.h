@@ -9,6 +9,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class HistoryItem;
 
+namespace Window {
+class SessionController;
+} // namespace Window
+
 namespace Ui {
 class GenericBox;
 class PopupMenu;
@@ -17,7 +21,9 @@ class Show;
 
 namespace Paradoks {
 
-void SettingsBox(not_null<Ui::GenericBox*> box);
+void SettingsBox(
+	not_null<Ui::GenericBox*> box,
+	not_null<Window::SessionController*> controller);
 
 void AddEditHistoryAction(
 	not_null<Ui::PopupMenu*> menu,

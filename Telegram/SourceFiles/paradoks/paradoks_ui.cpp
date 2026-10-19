@@ -8,7 +8,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_ui.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
+#include "paradoks/paradoks_voice.h"
+#include "window/window_session_controller.h"
 #include "base/unixtime.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
@@ -96,7 +99,9 @@ void EditsBox(
 
 } // namespace
 
-void SettingsBox(not_null<Ui::GenericBox*> box) {
+void SettingsBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller) {
 	box->setTitle(rpl::single(u"ParadoksGram"_q));
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 
@@ -127,6 +132,56 @@ void SettingsBox(not_null<Ui::GenericBox*> box) {
 		box,
 		Flag::GhostSchedule,
 		u"Faqat 22:00 dan 08:00 gacha ishlash"_q);
+
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, rpl::single(u"Ovoz effekti"_q));
+	const auto voiceTitle = [] {
+		return u"Ovozli xabar effekti: "_q
+			+ Voice::ModeTitle(Voice::CurrentMode());
+	};
+	const auto voiceLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(voiceTitle());
+	const auto voice = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			voiceLabel->value(),
+			st::settingsButtonNoIcon),
+		style::margins());
+	voice->setClickedCallback([=] {
+		const auto next = (int(Voice::CurrentMode()) + 1)
+			% (int(Voice::Mode::Villager) + 1);
+		Voice::SetMode(Voice::Mode(next));
+		*voiceLabel = voiceTitle();
+	});
+	AddText(
+		box,
+		u"Bosib Off, Robot, G'or va Minecraft Villager orasida almashtiring. "
+		"Effekt yangi yozilayotgan ovozli xabarlarga qo'llanadi."_q);
+
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, rpl::single(u"Maxfiylik"_q));
+	const auto hidden = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"Yashirin chatlar"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	hidden->setClickedCallback([=] {
+		Paradoks::ShowHiddenChats(controller);
+	});
+	const auto pin = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"Chat qulfi PIN"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	pin->setClickedCallback([=] {
+		Paradoks::ManagePin(controller);
+	});
+	AddText(
+		box,
+		u"Chatni yashirish yoki qulflash uchun chatlar ro'yxatida chat ustiga "
+		"o'ng tugma bosing."_q);
 
 	Ui::AddSkip(container);
 	const auto radar = box->addRow(

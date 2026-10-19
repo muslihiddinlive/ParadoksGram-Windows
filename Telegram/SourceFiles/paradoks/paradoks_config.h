@@ -20,7 +20,6 @@ enum class Flag : uchar {
 	KeepDeletedMedia,
 	TrackEdits,
 	HideSponsored,
-	HiddenInSearch,
 
 	kCount,
 };
@@ -33,5 +32,8 @@ void SetEnabled(Flag flag, bool value);
 void SetGhostSchedule(int startMinutes, int endMinutes);
 
 [[nodiscard]] bool InGhostWindow();
+
+[[nodiscard]] int VoiceEffect();
+void SetVoiceEffect(int mode);
 
 } // namespace Paradoks

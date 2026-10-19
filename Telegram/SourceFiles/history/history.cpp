@@ -81,6 +81,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "base/options.h"
 #include "base/unixtime.h"
+#include "paradoks/paradoks_privacy.h"
 #include "base/qt/qt_common_adapters.h"
 #include "styles/style_dialogs.h"
 
@@ -3463,7 +3464,7 @@ bool History::trackUnreadMessages() const {
 }
 
 bool History::shouldBeInChatList() const {
-	if (peer->migrateTo() || !folderKnown()) {
+	if (peer->migrateTo() || !folderKnown() || Paradoks::IsHidden(this)) {
 		return false;
 	} else if (const auto community = peer->asChannel()
 		; community && community->isCommunity()) {

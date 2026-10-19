@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 
 #include "api/api_updates.h"
+#include "paradoks/paradoks_privacy.h"
 #include "api/api_views.h"
 #include "data/components/scheduled_messages.h"
 #include "data/data_document_media.h"
@@ -1446,6 +1447,12 @@ void MainWidget::showHistory(
 			_controller->window().activate();
 		}
 		return;
+	} else if (peerId && Paradoks::NeedsUnlock(&session(), peerId)) {
+		const auto controller = _controller;
+		Paradoks::AskUnlock(controller, peerId, [=] {
+			controller->showPeerHistory(peerId, params, showAtMsgId);
+		});
+		return;
 	} else if (auto peer = session().data().peerLoaded(peerId)) {
 		if (peer->migrateTo()) {
 			peer = peer->migrateTo();
@@ -1478,6 +1485,9 @@ void MainWidget::showHistory(
 		return;
 	}
 
+	if (peerId) {
+		Paradoks::NoteChatShown(&session(), peerId);
+	}
 	if (peerId && params.activation != anim::activation::background) {
 		Core::App().hideMediaView();
 		_controller->window().activate();

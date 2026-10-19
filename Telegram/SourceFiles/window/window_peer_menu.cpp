@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_peer_menu.h"
 
 #include "base/call_delayed.h"
+#include "paradoks/paradoks_privacy.h"
 #include "menu/menu_check_item.h"
 #include "menu/menu_mark_as_read.h"
 #include "boxes/about_box.h"
@@ -1915,6 +1916,9 @@ void Filler::fillContextMenuActions() {
 	addHidePromotion();
 	addToggleArchive();
 	addTogglePin();
+	if (history) {
+		Paradoks::AddChatActions(_controller, not_null(_peer), _addAction);
+	}
 	if (ViewProfileInChatsListContextMenu.value()) {
 		addInfo();
 	}
@@ -1936,6 +1940,9 @@ void Filler::fillContextMenuActions() {
 
 void Filler::fillHistoryActions() {
 	addToggleMuteSubmenu(true);
+	if (_peer) {
+		Paradoks::AddChatActions(_controller, not_null(_peer), _addAction);
+	}
 	addCreateTopic();
 	addInfo();
 	addViewAsTopics();

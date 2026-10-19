@@ -1288,7 +1288,7 @@ void BuildExportSection(SectionBuilder &builder) {
 		.id = u"advanced/paradoks"_q,
 		.title = rpl::single(u"ParadoksGram"_q),
 		.icon = { &st::menuIconExperimental },
-		.onClick = [=] { controller->show(Box(Paradoks::SettingsBox)); },
+		.onClick = [=] { controller->show(Box(Paradoks::SettingsBox, controller)); },
 		.keywords = { u"paradoksgram"_q, u"ghost"_q, u"deleted"_q },
 	});
 }

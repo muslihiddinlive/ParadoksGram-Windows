@@ -45,6 +45,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session_settings.h"
 #include "ui/text/text_utilities.h"
 #include "platform/platform_specific.h"
+#include "paradoks/paradoks_privacy.h"
 
 #include <QtGui/QWindow>
 #include <QtGui/QGuiApplication>
@@ -317,6 +318,7 @@ System::SkipState System::skipNotification(
 	const auto thread = item->maybeNotificationThread();
 	if (!thread
 		|| !thread->currentNotification()
+		|| Paradoks::IsHidden(item->history())
 		|| (messageType && item->skipNotification())
 		|| (type == Data::ItemNotificationType::Reaction
 			&& skipSentNotification(item, _sentReactionNotifications))

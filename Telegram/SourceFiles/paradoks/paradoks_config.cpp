@@ -39,12 +39,12 @@ constexpr auto kFlags = std::array<FlagInfo, kCount>{ {
 	{ "keep_deleted_media", true },
 	{ "track_edits", true },
 	{ "hide_sponsored", true },
-	{ "hidden_in_search", false },
 } };
 
 std::array<std::atomic<bool>, kCount> Values;
 std::atomic<int> ScheduleStart = kDefaultScheduleStart;
 std::atomic<int> ScheduleEnd = kDefaultScheduleEnd;
+std::atomic<int> VoiceMode = 0;
 std::once_flag LoadFlag;
 
 [[nodiscard]] QString FilePath() {
@@ -65,6 +65,7 @@ void EnsureLoaded() {
 		ScheduleEnd = settings.value(
 			u"ghost_sched_end"_q,
 			kDefaultScheduleEnd).toInt();
+		VoiceMode = settings.value(u"voice_effect"_q, 0).toInt();
 	});
 }
 
@@ -99,6 +100,18 @@ void SetGhostSchedule(int startMinutes, int endMinutes) {
 	auto settings = QSettings(FilePath(), QSettings::IniFormat);
 	settings.setValue(u"ghost_sched_start"_q, startMinutes);
 	settings.setValue(u"ghost_sched_end"_q, endMinutes);
+}
+
+int VoiceEffect() {
+	EnsureLoaded();
+	return VoiceMode.load();
+}
+
+void SetVoiceEffect(int mode) {
+	EnsureLoaded();
+	VoiceMode = mode;
+	auto settings = QSettings(FilePath(), QSettings::IniFormat);
+	settings.setValue(u"voice_effect"_q, mode);
 }
 
 bool InGhostWindow() {

@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/audio/media_audio_track.h"
 #include "ffmpeg/ffmpeg_utility.h"
 #include "base/timer.h"
+#include "paradoks/paradoks_voice.h"
 
 #include <al.h>
 #include <alc.h>
@@ -344,6 +345,7 @@ void Instance::Inner::start(
 			return;
 		}
 	}
+	Paradoks::Voice::Reset();
 	_timer.callEach(50);
 	_captured.clear();
 	_captured.reserve(kCaptureBufferSlice);
@@ -650,7 +652,14 @@ void Instance::Inner::process() {
 		if (ErrorHappened(d->device)) {
 			fail();
 			return;
-		} else if (_externalProcessing) {
+		}
+		if (!_externalProcessing) {
+			Paradoks::Voice::Process(
+				reinterpret_cast<short*>(_captured.data() + s),
+				samples,
+				kCaptureFrequency);
+		}
+		if (_externalProcessing) {
 			_externalProcessing({
 				.finished = crl::now(),
 				.samples = base::take(_captured),

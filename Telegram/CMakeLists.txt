@@ -1707,10 +1707,14 @@ PRIVATE
     paradoks/paradoks_config.h
     paradoks/paradoks_ghost.cpp
     paradoks/paradoks_ghost.h
+    paradoks/paradoks_privacy.cpp
+    paradoks/paradoks_privacy.h
     paradoks/paradoks_store.cpp
     paradoks/paradoks_store.h
     paradoks/paradoks_ui.cpp
     paradoks/paradoks_ui.h
+    paradoks/paradoks_voice.cpp
+    paradoks/paradoks_voice.h
     poll/poll_link_box.cpp
     poll/poll_link_box.h
     poll/poll_link_thumbnail.cpp
