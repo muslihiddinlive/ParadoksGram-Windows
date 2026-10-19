@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "main/main_domain.h"
+#include "paradoks/paradoks_accounts.h"
 
 #include "core/application.h"
 #include "core/core_settings.h"
@@ -412,6 +413,8 @@ void Domain::watchSession(not_null<Account*> account) {
 		) | rpl::on_next([=] {
 			_lastMaxAccounts = maxAccounts();
 		}, session->lifetime());
+
+		Paradoks::RefreshHub(session);
 	}, account->lifetime());
 
 	account->sessionChanges(
@@ -612,13 +615,16 @@ void Domain::scheduleWriteAccounts() {
 }
 
 int Domain::maxAccounts() const {
-	const auto premiumCount = ranges::count_if(accounts(), [](
+	const auto subscribed = ranges::any_of(accounts(), [](
 			const Main::Domain::AccountWithIndex &d) {
 		return d.account->sessionExists()
-			&& (d.account->session().premium()
-				|| d.account->session().isTestMode());
+			&& Paradoks::HubMember(uint64(d.account->session().userId().bare));
 	});
-	return std::min(int(premiumCount) + kMaxAccounts, kPremiumMaxAccounts);
+	return subscribed ? kPremiumMaxAccounts : kMaxAccounts;
+}
+
+void Domain::updateMaxAccounts() {
+	_lastMaxAccounts = maxAccounts();
 }
 
 rpl::producer<int> Domain::maxAccountsChanges() const {

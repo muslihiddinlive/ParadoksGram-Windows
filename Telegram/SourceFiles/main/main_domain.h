@@ -37,7 +37,7 @@ public:
 	};
 
 	static constexpr auto kMaxAccounts = 3;
-	static constexpr auto kPremiumMaxAccounts = 6;
+	static constexpr auto kPremiumMaxAccounts = 10;
 
 	explicit Domain(const QString &dataName);
 	~Domain();
@@ -66,6 +66,7 @@ public:
 	void finish();
 
 	[[nodiscard]] int maxAccounts() const;
+	void updateMaxAccounts();
 	[[nodiscard]] rpl::producer<int> maxAccountsChanges() const;
 
 	[[nodiscard]] Storage::Domain &local() const {

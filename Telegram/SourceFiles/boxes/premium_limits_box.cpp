@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/premium_limits_box.h"
+#include "paradoks/paradoks_accounts.h"
 
 #include "ui/boxes/confirm_box.h"
 #include "ui/controls/peer_list_dummy.h"
@@ -1065,6 +1066,12 @@ void FileSizeLimitBox(
 }
 
 void AccountsLimitBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Main::Session*> session) {
+	Paradoks::AccountsGateBox(box, session);
+}
+
+void AccountsLimitBoxPremium(
 		not_null<Ui::GenericBox*> box,
 		not_null<Main::Session*> session) {
 	const auto defaultLimit = Main::Domain::kMaxAccounts;
