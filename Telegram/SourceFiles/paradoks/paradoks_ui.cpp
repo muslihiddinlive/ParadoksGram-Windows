@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
+#include "paradoks/paradoks_update.h"
 #include "paradoks/paradoks_voice.h"
 #include "window/window_session_controller.h"
 #include "base/unixtime.h"
@@ -106,6 +107,43 @@ void SettingsBox(
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 
 	const auto container = box->verticalLayout();
+
+	const auto updateTitle = [] {
+		const auto available = Update::AvailableBuild();
+		return (available > 0)
+			? u"Yangi versiya bor: build-%1. Yangilash"_q.arg(available)
+			: (Update::CurrentBuild() > 0)
+			? u"Yangilanishni tekshirish (hozir: build-%1)"_q.arg(
+				Update::CurrentBuild())
+			: u"Yangilanish (mahalliy build, o'chiq)"_q;
+	};
+	const auto updateLabel = std::make_shared<rpl::variable<QString>>(
+		updateTitle());
+	const auto update = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			updateLabel->value(),
+			st::settingsButtonNoIcon),
+		style::margins());
+	update->setClickedCallback([=] {
+		if (Update::AvailableBuild() > 0) {
+			Update::ShowBox(controller);
+			return;
+		}
+		Update::Check([=](Update::Result result) {
+			*updateLabel = updateTitle();
+			if (result == Update::Result::Newer) {
+				Update::ShowBox(controller);
+			} else if (result == Update::Result::Latest) {
+				controller->showToast(u"Eng yangi versiyadasiz"_q);
+			} else {
+				controller->showToast(
+					u"Tekshirib bo'lmadi. Internetni tekshiring"_q);
+			}
+		});
+	});
+	Ui::AddSkip(container);
+
 	Ui::AddSubsectionTitle(container, rpl::single(u"Umumiy"_q));
 	AddToggle(box, Flag::ShowId, u"ID ni ko'rsatish"_q);
 	AddToggle(

@@ -1713,6 +1713,8 @@ PRIVATE
     paradoks/paradoks_store.h
     paradoks/paradoks_ui.cpp
     paradoks/paradoks_ui.h
+    paradoks/paradoks_update.cpp
+    paradoks/paradoks_update.h
     paradoks/paradoks_voice.cpp
     paradoks/paradoks_voice.h
     poll/poll_link_box.cpp
@@ -2605,11 +2607,16 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Telegram PREFIX Resources FILES ${
 
 target_include_directories(Telegram PRIVATE ${src_loc})
 
+if (NOT DEFINED PARADOKS_BUILD_NUMBER)
+    set(PARADOKS_BUILD_NUMBER 0)
+endif()
+
 target_compile_definitions(Telegram
 PRIVATE
     TDESKTOP_API_ID=${TDESKTOP_API_ID}
     TDESKTOP_API_HASH=${TDESKTOP_API_HASH}
     G_LOG_DOMAIN="Telegram"
+    PARADOKS_BUILD_NUMBER=${PARADOKS_BUILD_NUMBER}
 )
 
 get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)

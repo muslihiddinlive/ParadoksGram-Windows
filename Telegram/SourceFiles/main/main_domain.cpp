@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "main/main_domain.h"
 #include "paradoks/paradoks_accounts.h"
+#include "paradoks/paradoks_update.h"
 
 #include "core/application.h"
 #include "core/core_settings.h"
@@ -415,6 +416,7 @@ void Domain::watchSession(not_null<Account*> account) {
 		}, session->lifetime());
 
 		Paradoks::RefreshHub(session);
+		Paradoks::Update::CheckOnStart();
 	}, account->lifetime());
 
 	account->sessionChanges(
