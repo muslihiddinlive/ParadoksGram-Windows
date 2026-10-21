@@ -255,6 +255,23 @@ jobs:
           cd artifact
           7z a ../ParadoksGram-Windows-x64.zip Telegram.exe
 
+      - name: Installer.
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          $repo = Join-Path $env:TBUILD $env:REPO_NAME
+          & $iscc `
+            "/DBuild=${{ github.run_number }}" `
+            "/DSourceExe=$env:GITHUB_WORKSPACE\artifact\Telegram.exe" `
+            "/DIconFile=$repo\Telegram\Resources\art\icon256.ico" `
+            "/DOutDir=$env:GITHUB_WORKSPACE" `
+            "$repo\.github\installer\paradoksgram.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
+
       - uses: actions/upload-artifact@v7
         name: Upload artifact.
         with:
@@ -267,7 +284,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "build-${{ github.run_number }}" ParadoksGram-Windows-x64.zip \
+          files=(ParadoksGram-Windows-x64.zip)
+          if [ -f ParadoksGram-Setup.exe ]; then files+=(ParadoksGram-Setup.exe); fi
+          gh release create "build-${{ github.run_number }}" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "ParadoksGram Windows build ${{ github.run_number }}" \
             --notes "Commit ${GITHUB_SHA::7}" \
