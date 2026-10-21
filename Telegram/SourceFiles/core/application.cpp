@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "core/application.h"
 
+#include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_hotkey.h"
+
 #include "data/data_abstract_structure.h"
 #include "data/data_channel.h"
 #include "data/data_forum.h"
@@ -557,6 +560,14 @@ void Application::startSettingsAndBackground() {
 	Local::rewriteSettingsIfNeeded();
 	Window::Theme::Background()->start();
 	checkSystemDarkMode();
+	if (Paradoks::TakeFirstRun()
+		&& !_domain->accountsAuthedCount()
+		&& !Window::Theme::IsNightMode()) {
+		// Fresh install: start in the dark theme.
+		Window::Theme::ToggleNightMode();
+		Window::Theme::KeepApplied();
+	}
+	Paradoks::Hotkey::Start();
 	Ui::SetScreenReaderModeDisabled(
 		settings().readPref<bool>(kScreenReaderModeDisabledKey));
 }

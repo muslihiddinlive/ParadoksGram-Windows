@@ -65,6 +65,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/ui_integration.h"
 #include "core/update_checker.h"
+#include "paradoks/paradoks_update.h"
 #include "core/shortcuts.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
@@ -662,6 +663,11 @@ Widget::Widget(
 			checkUpdateStatus();
 		}, lifetime());
 	}
+
+	Paradoks::Update::AvailableValue(
+	) | rpl::on_next([=](int build) {
+		checkParadoksUpdate(build);
+	}, lifetime());
 
 	_cancelSearch->setClickedCallback([=] {
 		cancelSearch({ .jumpBackToSearchedChat = true });
@@ -2645,6 +2651,37 @@ void Widget::checkUpdateStatus() {
 		_updateTelegram->setClickedCallback([] {
 			Core::checkReadyUpdate();
 			Core::Restart();
+		});
+		if (_connecting) {
+			_connecting->raise();
+		}
+	} else {
+		if (!_updateTelegram) {
+			return;
+		}
+		_updateTelegram.destroy();
+	}
+	updateControlsGeometry();
+}
+
+void Widget::checkParadoksUpdate(int build) {
+	if (_layout == Layout::Child) {
+		return;
+	}
+	if (build > 0) {
+		if (_updateTelegram) {
+			return;
+		}
+		_updateTelegram.create(
+			this,
+			u"ParadoksGram yangilanishi: build-%1"_q.arg(build),
+			st::dialogsUpdateButton,
+			st::dialogsInstallUpdate,
+			st::dialogsInstallUpdateOver,
+			true);
+		_updateTelegram->show();
+		_updateTelegram->setClickedCallback([=] {
+			Paradoks::Update::ShowBox(controller());
 		});
 		if (_connecting) {
 			_connecting->raise();

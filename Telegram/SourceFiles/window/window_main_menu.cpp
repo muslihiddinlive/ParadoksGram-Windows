@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/window_main_menu.h"
 
+#include "paradoks/paradoks_config.h"
+
 #include "apiwrap.h"
 #include "base/event_filter.h"
 #include "base/qt_signal_producer.h"
@@ -773,6 +775,18 @@ void MainMenu::setupMenu() {
 	)->setClickedCallback([=] {
 		controller->showSettings();
 	});
+
+	addAction(
+		rpl::single(u"Ghost mode"_q),
+		{ &st::menuIconGhost }
+	)->toggleOn(
+		Paradoks::GhostAllValue()
+	)->toggledChanges(
+	) | rpl::filter([=](bool on) {
+		return (on != Paradoks::GhostAll());
+	}) | rpl::on_next([=](bool on) {
+		Paradoks::SetGhostAll(on);
+	}, _menu->lifetime());
 
 	_nightThemeToggle = addAction(
 		tr::lng_menu_night_mode(),

@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "rpl/rpl.h"
+
 namespace Paradoks {
 
 enum class Flag : uchar {
@@ -27,11 +29,19 @@ enum class Flag : uchar {
 [[nodiscard]] bool Enabled(Flag flag);
 void SetEnabled(Flag flag, bool value);
 
+// Master switch: all four ghost parts together (read, typing, online, stories).
+[[nodiscard]] bool GhostAll();
+void SetGhostAll(bool value);
+[[nodiscard]] rpl::producer<bool> GhostAllValue();
+
 [[nodiscard]] int GhostScheduleStart();
 [[nodiscard]] int GhostScheduleEnd();
 void SetGhostSchedule(int startMinutes, int endMinutes);
 
 [[nodiscard]] bool InGhostWindow();
+
+// True only once per working directory (first launch of this client).
+[[nodiscard]] bool TakeFirstRun();
 
 [[nodiscard]] int VoiceEffect();
 void SetVoiceEffect(int mode);

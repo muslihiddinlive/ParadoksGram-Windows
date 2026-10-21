@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "rpl/rpl.h"
+
 namespace Window {
 class SessionController;
 } // namespace Window
@@ -25,7 +27,10 @@ enum class Result {
 // Newer build found by the last check, or 0.
 [[nodiscard]] int AvailableBuild();
 
-// Delayed one-time check after the app starts; shows the box if newer.
+// Newer build number as a stream (0 while there is none).
+[[nodiscard]] rpl::producer<int> AvailableValue();
+
+// Delayed one-time check after the app starts, then periodic.
 void CheckOnStart();
 
 void Check(Fn<void(Result)> done);

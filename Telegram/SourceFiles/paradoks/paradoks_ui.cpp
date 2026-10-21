@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_ui.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_hotkey.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
 #include "paradoks/paradoks_update.h"
@@ -162,6 +163,41 @@ void SettingsBox(
 
 	Ui::AddSkip(container);
 	Ui::AddSubsectionTitle(container, rpl::single(u"Ghost mode"_q));
+	const auto master = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"Ghost mode (hammasi birga)"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	master->toggleOn(
+		GhostAllValue()
+	)->toggledChanges(
+	) | rpl::filter([=](bool on) {
+		return (on != GhostAll());
+	}) | rpl::on_next([=](bool on) {
+		SetGhostAll(on);
+	}, master->lifetime());
+	const auto shortcutTitle = [] {
+		const auto title = Hotkey::Title();
+		return u"Ghost shortcut: "_q
+			+ (title.isEmpty() ? u"o'rnatilmagan"_q : title);
+	};
+	const auto shortcutLabel = std::make_shared<rpl::variable<QString>>(
+		shortcutTitle());
+	const auto shortcut = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			shortcutLabel->value(),
+			st::settingsButtonNoIcon),
+		style::margins());
+	shortcut->setClickedCallback([=] {
+		box->getDelegate()->show(Box(
+			Hotkey::CaptureBox,
+			Fn<void()>([=] { *shortcutLabel = shortcutTitle(); })));
+	});
+	AddText(
+		box,
+		u"Yoki alohida yoqing:"_q);
 	AddToggle(box, Flag::GhostRead, u"O'qilgan belgisini yashirish"_q);
 	AddToggle(box, Flag::GhostTyping, u"\"Yozyapti...\" ni yashirish"_q);
 	AddToggle(box, Flag::GhostOnline, u"Online holatini yashirish"_q);

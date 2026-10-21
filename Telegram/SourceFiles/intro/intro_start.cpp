@@ -24,8 +24,10 @@ StartWidget::StartWidget(
 	not_null<Data*> data)
 : Step(parent, account, data, true) {
 	setMouseTracking(true);
-	setTitleText(rpl::single(u"Telegram Desktop"_q));
-	setDescriptionText(tr::lng_intro_about());
+	setTitleText(rpl::single(u"ParadoksGram"_q));
+	setDescriptionText(rpl::single(
+		u"Telegram uchun ghost mode, maxfiy chatlar va ovoz effektlari "
+		"qo'shilgan klient.\nTez va xavfsiz."_q));
 	show();
 }
 
@@ -35,7 +37,7 @@ void StartWidget::submit() {
 }
 
 rpl::producer<QString> StartWidget::nextButtonText() const {
-	return tr::lng_start_msgs();
+	return rpl::single(u"Boshlash"_q);
 }
 
 rpl::producer<> StartWidget::nextButtonFocusRequests() const {

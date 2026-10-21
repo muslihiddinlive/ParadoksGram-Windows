@@ -25,6 +25,7 @@ menuIconEmoji: icon {{ "menu/emoji", menuIconColor }};
 menuIconCancel: icon {{ "menu/cancel", menuIconColor }};
 menuIconShowInChat: icon {{ "menu/show_in_chat", menuIconColor }};
 menuIconStealth: icon {{ "menu/stealth", menuIconColor }};
+menuIconGhost: icon {{ "menu/ghost", menuIconColor }};
 menuIconStealthLocked: icon {{ "menu/stealth_locked", menuIconColor }};
 menuIconGif: icon {{ "menu/gif", menuIconColor }};
 menuIconShowInFolder: icon {{ "menu/show_in_folder", menuIconColor }};

@@ -61,6 +61,7 @@ struct Info {
 
 struct State {
 	Info available;
+	rpl::variable<int> availableBuild = rpl::variable<int>(0);
 	bool started = false;
 };
 
@@ -137,6 +138,7 @@ bool Parse(const QByteArray &data) {
 	}
 	auto &state = Data();
 	state.available = (best.build > CurrentBuild()) ? best : Info();
+	state.availableBuild = state.available.build;
 	return true;
 }
 
@@ -458,6 +460,10 @@ int AvailableBuild() {
 	return Data().available.build;
 }
 
+rpl::producer<int> AvailableValue() {
+	return Data().availableBuild.value();
+}
+
 void Check(Fn<void(Result)> done) {
 	if (CurrentBuild() <= 0) {
 		if (done) {
@@ -493,18 +499,17 @@ void CheckOnStart() {
 		return;
 	}
 	state.started = true;
-	QTimer::singleShot(20 * 1000, [] {
-		Check([](Result result) {
-			if (result != Result::Newer) {
-				return;
-			}
-			if (const auto window = Core::App().activeWindow()) {
-				if (const auto controller = window->sessionController()) {
-					ShowBox(controller);
-				}
-			}
-		});
+	// The "new version" button at the bottom of the chats list reacts to
+	// the result; check shortly after start and then every few hours.
+	QTimer::singleShot(15 * 1000, [] {
+		Check(nullptr);
 	});
+	const auto timer = new QTimer();
+	timer->setInterval(4 * 60 * 60 * 1000);
+	QObject::connect(timer, &QTimer::timeout, [] {
+		Check(nullptr);
+	});
+	timer->start();
 }
 
 } // namespace Paradoks::Update

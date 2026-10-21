@@ -9,6 +9,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "settings.h"
 
+#include "rpl/rpl.h"
+
 #include <QtCore/QDateTime>
 #include <QtCore/QSettings>
 
@@ -47,6 +49,11 @@ std::atomic<int> ScheduleEnd = kDefaultScheduleEnd;
 std::atomic<int> VoiceMode = 0;
 std::once_flag LoadFlag;
 
+[[nodiscard]] rpl::event_stream<> &GhostEvents() {
+	static auto events = rpl::event_stream<>();
+	return events;
+}
+
 [[nodiscard]] QString FilePath() {
 	return cWorkingDir() + u"tdata/paradoks.ini"_q;
 }
@@ -81,6 +88,33 @@ void SetEnabled(Flag flag, bool value) {
 	Values[int(flag)] = value;
 	auto settings = QSettings(FilePath(), QSettings::IniFormat);
 	settings.setValue(QString::fromLatin1(kFlags[int(flag)].key), value);
+	if (int(flag) <= int(Flag::GhostStories)) {
+		GhostEvents().fire({});
+	}
+}
+
+bool GhostAll() {
+	return Enabled(Flag::GhostRead)
+		&& Enabled(Flag::GhostTyping)
+		&& Enabled(Flag::GhostOnline)
+		&& Enabled(Flag::GhostStories);
+}
+
+void SetGhostAll(bool value) {
+	SetEnabled(Flag::GhostRead, value);
+	SetEnabled(Flag::GhostTyping, value);
+	SetEnabled(Flag::GhostOnline, value);
+	SetEnabled(Flag::GhostStories, value);
+}
+
+rpl::producer<bool> GhostAllValue() {
+	return rpl::single(
+		GhostAll()
+	) | rpl::then(
+		GhostEvents().events() | rpl::map([] {
+			return GhostAll();
+		})
+	) | rpl::distinct_until_changed();
 }
 
 int GhostScheduleStart() {
@@ -112,6 +146,16 @@ void SetVoiceEffect(int mode) {
 	VoiceMode = mode;
 	auto settings = QSettings(FilePath(), QSettings::IniFormat);
 	settings.setValue(u"voice_effect"_q, mode);
+}
+
+bool TakeFirstRun() {
+	auto settings = QSettings(FilePath(), QSettings::IniFormat);
+	if (settings.contains(u"first_run_done"_q)) {
+		return false;
+	}
+	settings.setValue(u"first_run_done"_q, true);
+	settings.sync();
+	return true;
 }
 
 bool InGhostWindow() {

@@ -1707,6 +1707,8 @@ PRIVATE
     paradoks/paradoks_config.h
     paradoks/paradoks_ghost.cpp
     paradoks/paradoks_ghost.h
+    paradoks/paradoks_hotkey.cpp
+    paradoks/paradoks_hotkey.h
     paradoks/paradoks_privacy.cpp
     paradoks/paradoks_privacy.h
     paradoks/paradoks_store.cpp
