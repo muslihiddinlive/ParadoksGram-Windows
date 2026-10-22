@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_main_menu.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_privacy.h"
 
 #include "apiwrap.h"
 #include "base/event_filter.h"
