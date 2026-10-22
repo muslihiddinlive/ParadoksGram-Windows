@@ -8,7 +8,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_main_menu.h"
 
 #include "paradoks/paradoks_config.h"
-#include "paradoks/paradoks_privacy.h"
 
 #include "apiwrap.h"
 #include "base/event_filter.h"
@@ -723,12 +722,6 @@ void MainMenu::setupMenu() {
 			{ &st::menuIconSavedMessages }
 		)->setClickedCallback([=] {
 			controller->showPeerHistory(controller->session().user());
-		});
-		addAction(
-			rpl::single(u"Yashirin chatlar"_q),
-			{ &st::menuIconLock }
-		)->setClickedCallback([=] {
-			Paradoks::ShowHiddenChats(controller);
 		});
 		const auto session = &controller->session();
 		const auto wallet = _menu->add(
