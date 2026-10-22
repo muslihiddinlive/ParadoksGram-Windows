@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_hotkey.h"
+#include "paradoks/paradoks_icon.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
 #include "paradoks/paradoks_update.h"
@@ -214,6 +215,18 @@ void SettingsBox(
 		box,
 		Flag::GhostSchedule,
 		u"Faqat 22:00 dan 08:00 gacha ishlash"_q);
+
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, rpl::single(u"Ilova ikonkasi"_q));
+	const auto iconButton = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"Ikonkani almashtirish (Ghost / Telegram / Neon)"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	iconButton->setClickedCallback([=] {
+		controller->show(Box(Paradoks::AppIcon::PickerBox));
+	});
 
 	Ui::AddSkip(container);
 	Ui::AddSubsectionTitle(container, rpl::single(u"Ovoz effekti"_q));

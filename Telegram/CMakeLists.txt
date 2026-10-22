@@ -1708,6 +1708,8 @@ PRIVATE
     paradoks/paradoks_ghost.cpp
     paradoks/paradoks_ghost.h
     paradoks/paradoks_hotkey.cpp
+    paradoks/paradoks_icon.cpp
+    paradoks/paradoks_icon.h
     paradoks/paradoks_hotkey.h
     paradoks/paradoks_privacy.cpp
     paradoks/paradoks_privacy.h

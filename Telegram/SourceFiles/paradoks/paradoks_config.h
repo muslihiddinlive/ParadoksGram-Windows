@@ -43,6 +43,9 @@ void SetGhostSchedule(int startMinutes, int endMinutes);
 // True only once per working directory (first launch of this client).
 [[nodiscard]] bool TakeFirstRun();
 
+[[nodiscard]] int AppIconVariant();
+void SetAppIconVariant(int variant);
+
 [[nodiscard]] int VoiceEffect();
 void SetVoiceEffect(int mode);
 

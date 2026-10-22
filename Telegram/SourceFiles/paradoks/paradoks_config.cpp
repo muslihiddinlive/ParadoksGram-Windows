@@ -47,6 +47,7 @@ std::array<std::atomic<bool>, kCount> Values;
 std::atomic<int> ScheduleStart = kDefaultScheduleStart;
 std::atomic<int> ScheduleEnd = kDefaultScheduleEnd;
 std::atomic<int> VoiceMode = 0;
+std::atomic<int> IconVariant = 0;
 std::once_flag LoadFlag;
 
 [[nodiscard]] rpl::event_stream<> &GhostEvents() {
@@ -73,6 +74,7 @@ void EnsureLoaded() {
 			u"ghost_sched_end"_q,
 			kDefaultScheduleEnd).toInt();
 		VoiceMode = settings.value(u"voice_effect"_q, 0).toInt();
+		IconVariant = settings.value(u"app_icon"_q, 0).toInt();
 	});
 }
 
@@ -134,6 +136,18 @@ void SetGhostSchedule(int startMinutes, int endMinutes) {
 	auto settings = QSettings(FilePath(), QSettings::IniFormat);
 	settings.setValue(u"ghost_sched_start"_q, startMinutes);
 	settings.setValue(u"ghost_sched_end"_q, endMinutes);
+}
+
+int AppIconVariant() {
+	EnsureLoaded();
+	return IconVariant.load();
+}
+
+void SetAppIconVariant(int variant) {
+	EnsureLoaded();
+	IconVariant = variant;
+	auto settings = QSettings(FilePath(), QSettings::IniFormat);
+	settings.setValue(u"app_icon"_q, variant);
 }
 
 int VoiceEffect() {
