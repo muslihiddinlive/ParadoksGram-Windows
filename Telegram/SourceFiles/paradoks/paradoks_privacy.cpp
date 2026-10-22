@@ -462,6 +462,16 @@ void ShowHiddenChats(not_null<Window::SessionController*> controller) {
 	});
 }
 
+bool TryOpenByPin(
+		not_null<Window::SessionController*> controller,
+		const QString &text) {
+	if (text.size() < kMinPinLength || !CheckPin(text)) {
+		return false;
+	}
+	controller->show(Box(HiddenChatsBox, controller));
+	return true;
+}
+
 void ManagePin(not_null<Window::SessionController*> controller) {
 	if (!HasPin()) {
 		controller->show(Box(

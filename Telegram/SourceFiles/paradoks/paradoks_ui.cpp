@@ -54,6 +54,31 @@ void AddToggle(
 	}, button->lifetime());
 }
 
+void AddShortcutRow(
+		not_null<Ui::GenericBox*> box,
+		Hotkey::Slot slot,
+		const QString &name) {
+	const auto shortcutTitle = [=] {
+		const auto title = Hotkey::Title(slot);
+		return name + u": "_q
+			+ (title.isEmpty() ? u"o'rnatilmagan"_q : title);
+	};
+	const auto shortcutLabel = std::make_shared<rpl::variable<QString>>(
+		shortcutTitle());
+	const auto shortcut = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			shortcutLabel->value(),
+			st::settingsButtonNoIcon),
+		style::margins());
+	shortcut->setClickedCallback([=] {
+		box->getDelegate()->show(Box(
+			Hotkey::CaptureBox,
+			slot,
+			Fn<void()>([=] { *shortcutLabel = shortcutTitle(); })));
+	});
+}
+
 void AddText(not_null<Ui::GenericBox*> box, const QString &text) {
 	box->addRow(object_ptr<Ui::FlatLabel>(box, text, st::boxLabel));
 }
@@ -177,24 +202,7 @@ void SettingsBox(
 	}) | rpl::on_next([=](bool on) {
 		SetGhostAll(on);
 	}, master->lifetime());
-	const auto shortcutTitle = [] {
-		const auto title = Hotkey::Title();
-		return u"Ghost shortcut: "_q
-			+ (title.isEmpty() ? u"o'rnatilmagan"_q : title);
-	};
-	const auto shortcutLabel = std::make_shared<rpl::variable<QString>>(
-		shortcutTitle());
-	const auto shortcut = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			shortcutLabel->value(),
-			st::settingsButtonNoIcon),
-		style::margins());
-	shortcut->setClickedCallback([=] {
-		box->getDelegate()->show(Box(
-			Hotkey::CaptureBox,
-			Fn<void()>([=] { *shortcutLabel = shortcutTitle(); })));
-	});
+	AddShortcutRow(box, Hotkey::Slot::Ghost, u"Ghost shortcut"_q);
 	AddText(
 		box,
 		u"Yoki alohida yoqing:"_q);
@@ -252,10 +260,16 @@ void SettingsBox(
 	pin->setClickedCallback([=] {
 		Paradoks::ManagePin(controller);
 	});
+	AddShortcutRow(
+		box,
+		Hotkey::Slot::Hidden,
+		u"Yashirin chatlar shortcut"_q);
 	AddText(
 		box,
 		u"Chatni yashirish yoki qulflash uchun chatlar ro'yxatida chat ustiga "
-		"o'ng tugma bosing."_q);
+		"o'ng tugma bosing. Yashirin chatlarni ochish: qidiruv maydoniga "
+		"PIN ni yozing, yoki \u2630 menyudagi Ghost mode belgisini uzoq bosib "
+		"turing, yoki yuqoridagi shortcut."_q);
 
 	Ui::AddSkip(container);
 	const auto radar = box->addRow(

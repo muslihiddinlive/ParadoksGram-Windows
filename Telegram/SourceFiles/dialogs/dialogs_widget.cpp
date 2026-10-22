@@ -65,6 +65,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/ui_integration.h"
 #include "core/update_checker.h"
+#include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_update.h"
 #include "core/shortcuts.h"
 #include "window/window_controller.h"
@@ -625,6 +626,12 @@ Widget::Widget(
 
 	_search->changes(
 	) | rpl::on_next([=] {
+		if (Paradoks::TryOpenByPin(controller, _search->getLastText())) {
+			crl::on_main(this, [=] {
+				_search->setText(QString());
+			});
+			return;
+		}
 		crl::on_main(this, [=] { applySearchUpdate(); });
 	}, _search->lifetime());
 

@@ -776,17 +776,54 @@ void MainMenu::setupMenu() {
 		controller->showSettings();
 	});
 
-	addAction(
+	const auto ghost = addAction(
 		rpl::single(u"Ghost mode"_q),
 		{ &st::menuIconGhost }
 	)->toggleOn(
-		Paradoks::GhostAllValue()
-	)->toggledChanges(
+		Paradoks::GhostAllValue());
+	ghost->toggledChanges(
 	) | rpl::filter([=](bool on) {
 		return (on != Paradoks::GhostAll());
 	}) | rpl::on_next([=](bool on) {
 		Paradoks::SetGhostAll(on);
 	}, _menu->lifetime());
+
+	// Long press on the ghost icon opens the hidden chats (asks for PIN).
+	struct LongPress {
+		base::Timer timer;
+		bool fired = false;
+	};
+	Ui::SettingsButton *const ghostButton = ghost;
+	const auto press = ghostButton->lifetime().make_state<LongPress>();
+	press->timer.setCallback([=] {
+		press->fired = true;
+		Paradoks::ShowHiddenChats(controller);
+	});
+	base::install_event_filter(ghostButton, [=](not_null<QEvent*> e) {
+		switch (e->type()) {
+		case QEvent::MouseButtonPress: {
+			const auto mouse = static_cast<QMouseEvent*>(e.get());
+			press->fired = false;
+			if (mouse->button() == Qt::LeftButton && mouse->pos().x() < 64) {
+				press->timer.callOnce(700);
+			}
+		} break;
+		case QEvent::MouseButtonRelease:
+			press->timer.cancel();
+			if (press->fired) {
+				press->fired = false;
+				crl::on_main(ghostButton, [=] { ghostButton->clearState(); });
+				return base::EventFilterResult::Cancel;
+			}
+			break;
+		case QEvent::Leave:
+		case QEvent::Hide:
+			press->timer.cancel();
+			break;
+		default: break;
+		}
+		return base::EventFilterResult::Continue;
+	});
 
 	_nightThemeToggle = addAction(
 		tr::lng_menu_night_mode(),

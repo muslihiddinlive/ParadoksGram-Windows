@@ -43,6 +43,11 @@ void AddChatActions(
 	const Ui::Menu::MenuCallback &add);
 
 void ShowHiddenChats(not_null<Window::SessionController*> controller);
+
+// If `text` is exactly the PIN, opens the hidden chats list and returns true.
+[[nodiscard]] bool TryOpenByPin(
+	not_null<Window::SessionController*> controller,
+	const QString &text);
 void ManagePin(not_null<Window::SessionController*> controller);
 
 } // namespace Paradoks

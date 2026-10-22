@@ -13,11 +13,18 @@ class GenericBox;
 
 namespace Paradoks::Hotkey {
 
+enum class Slot : uchar {
+	Ghost,
+	Hidden,
+
+	kCount,
+};
+
 // Registers the saved global shortcut (if any). Safe to call repeatedly.
 void Start();
 
 // Shortcut text like "Ctrl+Shift+G", empty if none is set.
-[[nodiscard]] QString Title();
+[[nodiscard]] QString Title(Slot slot);
 
 // Flips the master ghost switch and flashes a small notice.
 void ToggleGhost();
@@ -26,6 +33,9 @@ void ToggleGhost();
 void ShowOverlay(bool ghostOn);
 
 // Box that waits for a key combination and saves it as the shortcut.
-void CaptureBox(not_null<Ui::GenericBox*> box, Fn<void()> changed);
+void CaptureBox(
+	not_null<Ui::GenericBox*> box,
+	Slot slot,
+	Fn<void()> changed);
 
 } // namespace Paradoks::Hotkey

@@ -8,6 +8,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_hotkey.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_privacy.h"
+#include "core/application.h"
+#include "window/window_controller.h"
+#include "window/window_session_controller.h"
 #include "lang/lang_keys.h"
 #include "settings.h"
 #include "ui/layers/generic_box.h"
@@ -20,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QPointer>
 #include <QtCore/QSettings>
 #include <QtCore/QTimer>
+#include <array>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QKeyEvent>
 #include <QtGui/QKeySequence>
@@ -49,25 +54,54 @@ struct Saved {
 	return cWorkingDir() + u"tdata/paradoks.ini"_q;
 }
 
-[[nodiscard]] Saved &Current() {
+[[nodiscard]] QString KeyPrefix(Slot slot) {
+	// The first slot keeps its old keys, so saved shortcuts survive.
+	return (slot == Slot::Ghost) ? u"hotkey"_q : u"hotkey_hidden"_q;
+}
+
+[[nodiscard]] std::array<Saved, int(Slot::kCount)> &All() {
 	static auto saved = [] {
-		auto result = Saved();
+		auto result = std::array<Saved, int(Slot::kCount)>();
 		auto settings = QSettings(IniPath(), QSettings::IniFormat);
-		result.modifiers = settings.value(u"hotkey/mod"_q, 0).toUInt();
-		result.vk = settings.value(u"hotkey/vk"_q, 0).toUInt();
-		result.title = settings.value(u"hotkey/title"_q).toString();
+		for (auto i = 0; i != int(Slot::kCount); ++i) {
+			const auto prefix = KeyPrefix(Slot(i));
+			result[i].modifiers = settings.value(
+				prefix + u"/mod"_q,
+				0).toUInt();
+			result[i].vk = settings.value(prefix + u"/vk"_q, 0).toUInt();
+			result[i].title = settings.value(
+				prefix + u"/title"_q).toString();
+		}
 		return result;
 	}();
 	return saved;
 }
 
-void Save() {
-	const auto &saved = Current();
+[[nodiscard]] Saved &Current(Slot slot) {
+	return All()[int(slot)];
+}
+
+void Save(Slot slot) {
+	const auto &saved = Current(slot);
+	const auto prefix = KeyPrefix(slot);
 	auto settings = QSettings(IniPath(), QSettings::IniFormat);
-	settings.setValue(u"hotkey/mod"_q, saved.modifiers);
-	settings.setValue(u"hotkey/vk"_q, saved.vk);
-	settings.setValue(u"hotkey/title"_q, saved.title);
+	settings.setValue(prefix + u"/mod"_q, saved.modifiers);
+	settings.setValue(prefix + u"/vk"_q, saved.vk);
+	settings.setValue(prefix + u"/title"_q, saved.title);
 	settings.sync();
+}
+
+void OpenHidden() {
+	const auto window = Core::App().activePrimaryWindow();
+	if (!window) {
+		return;
+	}
+	const auto controller = window->sessionController();
+	if (!controller) {
+		return;
+	}
+	window->activate();
+	ShowHiddenChats(controller);
 }
 
 #ifdef Q_OS_WIN
@@ -85,24 +119,32 @@ public:
 			void *message,
 			FilterResult *result) override {
 		const auto msg = static_cast<MSG*>(message);
-		if (msg && msg->message == WM_HOTKEY && msg->wParam == kHotkeyId) {
-			QTimer::singleShot(0, [] {
-				ToggleGhost();
-			});
-			return true;
+		if (msg && msg->message == WM_HOTKEY) {
+			const auto index = int(msg->wParam) - kHotkeyId;
+			if (index >= 0 && index < int(Slot::kCount)) {
+				const auto slot = Slot(index);
+				QTimer::singleShot(0, [=] {
+					if (slot == Slot::Ghost) {
+						ToggleGhost();
+					} else {
+						OpenHidden();
+					}
+				});
+				return true;
+			}
 		}
 		return false;
 	}
 };
 
-[[nodiscard]] bool Register(uint modifiers, uint vk) {
-	UnregisterHotKey(nullptr, kHotkeyId);
+[[nodiscard]] bool Register(Slot slot, uint modifiers, uint vk) {
+	UnregisterHotKey(nullptr, kHotkeyId + int(slot));
 	if (!vk) {
 		return true;
 	}
 	return RegisterHotKey(
 		nullptr,
-		kHotkeyId,
+		kHotkeyId + int(slot),
 		modifiers | MOD_NOREPEAT,
 		vk) != FALSE;
 }
@@ -130,7 +172,7 @@ public:
 
 #else // Q_OS_WIN
 
-[[nodiscard]] bool Register(uint modifiers, uint vk) {
+[[nodiscard]] bool Register(Slot slot, uint modifiers, uint vk) {
 	return false;
 }
 
@@ -266,14 +308,16 @@ void Start() {
 	QCoreApplication::instance()->installNativeEventFilter(
 		new NativeFilter());
 #endif // Q_OS_WIN
-	const auto &saved = Current();
-	if (saved.vk) {
-		(void)Register(saved.modifiers, saved.vk);
+	for (auto i = 0; i != int(Slot::kCount); ++i) {
+		const auto &saved = Current(Slot(i));
+		if (saved.vk) {
+			(void)Register(Slot(i), saved.modifiers, saved.vk);
+		}
 	}
 }
 
-QString Title() {
-	return Current().title;
+QString Title(Slot slot) {
+	return Current(slot).title;
 }
 
 void ShowOverlay(bool ghostOn) {
@@ -290,8 +334,13 @@ void ToggleGhost() {
 	ShowOverlay(GhostAll());
 }
 
-void CaptureBox(not_null<Ui::GenericBox*> box, Fn<void()> changed) {
-	box->setTitle(rpl::single(u"Ghost mode shortcut"_q));
+void CaptureBox(
+		not_null<Ui::GenericBox*> box,
+		Slot slot,
+		Fn<void()> changed) {
+	box->setTitle(rpl::single((slot == Slot::Ghost)
+		? u"Ghost mode shortcut"_q
+		: u"Yashirin chatlar shortcut"_q));
 	const auto status = box->addRow(object_ptr<Ui::FlatLabel>(
 		box,
 		u"Kerakli tugmalar birikmasini bosing (Ctrl, Alt yoki Shift "
@@ -332,11 +381,11 @@ void CaptureBox(not_null<Ui::GenericBox*> box, Fn<void()> changed) {
 				u"Ctrl, Alt yoki Shift bilan birga bosing."_q);
 			return;
 		}
-		auto &saved = Current();
+		auto &saved = Current(slot);
 		const auto previous = saved;
 		const auto winModifiers = WinModifiers(modifiers);
-		if (!Register(winModifiers, vk)) {
-			(void)Register(previous.modifiers, previous.vk);
+		if (!Register(slot, winModifiers, vk)) {
+			(void)Register(slot, previous.modifiers, previous.vk);
 			status->setText(
 				u"Bu birikma band. Boshqasini bosing."_q);
 			return;
@@ -359,7 +408,7 @@ void CaptureBox(not_null<Ui::GenericBox*> box, Fn<void()> changed) {
 		saved.modifiers = winModifiers;
 		saved.vk = vk;
 		saved.title = title;
-		Save();
+		Save(slot);
 		weak->closeBox();
 		if (changed) {
 			changed();
@@ -371,10 +420,10 @@ void CaptureBox(not_null<Ui::GenericBox*> box, Fn<void()> changed) {
 	QCoreApplication::instance()->installEventFilter(filter);
 
 	box->addButton(rpl::single(u"Olib tashlash"_q), [=] {
-		auto &saved = Current();
+		auto &saved = Current(slot);
 		saved = Saved();
-		(void)Register(0, 0);
-		Save();
+		(void)Register(slot, 0, 0);
+		Save(slot);
 		box->closeBox();
 		if (changed) {
 			changed();
