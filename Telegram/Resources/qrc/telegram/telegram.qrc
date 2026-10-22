@@ -11,6 +11,8 @@
     <file alias="art/logo_256_tg_no_margin.png">../../art/logo_256_tg_no_margin.png</file>
     <file alias="art/logo_256_neon.png">../../art/logo_256_neon.png</file>
     <file alias="art/logo_256_neon_no_margin.png">../../art/logo_256_neon_no_margin.png</file>
+    <file alias="art/logo_256_matrix.png">../../art/logo_256_matrix.png</file>
+    <file alias="art/logo_256_matrix_no_margin.png">../../art/logo_256_matrix_no_margin.png</file>
     <file alias="art/themeimage.jpg">../../art/themeimage.jpg</file>
     <file alias="art/round_placeholder.jpg">../../art/round_placeholder.jpg</file>
     <file alias="art/cocoon.webp">../../art/cocoon.webp</file>

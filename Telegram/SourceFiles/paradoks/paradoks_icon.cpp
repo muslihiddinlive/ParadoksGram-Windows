@@ -37,15 +37,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Paradoks::AppIcon {
 namespace {
 
-constexpr auto kTileWidth = 80;
-constexpr auto kTileGap = 12;
-constexpr auto kPictureSize = 64;
-constexpr auto kPickerHeight = 108;
+constexpr auto kTileWidth = 62;
+constexpr auto kTileGap = 6;
+constexpr auto kPictureSize = 48;
+constexpr auto kPickerHeight = 92;
 
 [[nodiscard]] QString Title(int variant) {
 	switch (variant) {
 	case 1: return u"Telegram"_q;
-	case 2: return u"Neon ghost"_q;
+	case 2: return u"Neon"_q;
+	case 3: return u"Matrix"_q;
 	}
 	return u"Ghost"_q;
 }
@@ -227,6 +228,7 @@ QString ResourcePath(int variant, bool noMargin) {
 	switch (variant) {
 	case 1: return u":/gui/art/logo_256_tg%1.png"_q.arg(suffix);
 	case 2: return u":/gui/art/logo_256_neon%1.png"_q.arg(suffix);
+	case 3: return u":/gui/art/logo_256_matrix%1.png"_q.arg(suffix);
 	}
 	return u":/gui/art/logo_256%1.png"_q.arg(suffix);
 }

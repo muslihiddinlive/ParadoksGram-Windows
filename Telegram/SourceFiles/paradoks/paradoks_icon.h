@@ -13,7 +13,7 @@ class GenericBox;
 
 namespace Paradoks::AppIcon {
 
-constexpr auto kVariants = 3; // Ghost, Telegram, Neon ghost.
+constexpr auto kVariants = 4; // Ghost, Telegram, Neon, Matrix.
 
 // Selected variant (0 .. kVariants - 1).
 [[nodiscard]] int Current();

@@ -221,7 +221,7 @@ void SettingsBox(
 	const auto iconButton = box->addRow(
 		object_ptr<Ui::SettingsButton>(
 			box,
-			rpl::single(u"Ikonkani almashtirish (Ghost / Telegram / Neon)"_q),
+			rpl::single(u"Ikonkani almashtirish (Ghost / Telegram / Neon / Matrix)"_q),
 			st::settingsButtonNoIcon),
 		style::margins());
 	iconButton->setClickedCallback([=] {
