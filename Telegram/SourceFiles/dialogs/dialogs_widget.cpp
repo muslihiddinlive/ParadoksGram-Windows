@@ -765,7 +765,7 @@ Widget::Widget(
 	Paradoks::Update::Failures(
 	) | rpl::on_next([=](const QString &text) {
 		if (_layout != Layout::Child) {
-			controller()->show(Ui::MakeInformBox(text));
+			this->controller()->show(Ui::MakeInformBox(text));
 		}
 	}, lifetime());
 
