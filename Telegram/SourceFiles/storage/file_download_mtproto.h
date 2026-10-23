@@ -69,6 +69,7 @@ private:
 	bool setWebFileSizeHook(int64 size) override;
 
 	bool _lastComplete = false;
+	bool _paradoksResume = false;
 	int64 _nextRequestOffset = 0;
 
 };

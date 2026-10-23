@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_voice.h"
 #include "window/window_session_controller.h"
 #include "base/unixtime.h"
+#include "base/timer.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
 #include "ui/layers/generic_box.h"
@@ -125,6 +126,17 @@ void EditsBox(
 	AddText(box, u"Hozirgi variant:\n"_q + current);
 }
 
+[[nodiscard]] QString SpeedText(double bytesPerSecond) {
+	return u"%1 MB/s (%2 Mbit/s)"_q
+		.arg(bytesPerSecond / (1024. * 1024.), 0, 'f', 1)
+		.arg(bytesPerSecond * 8. / 1000000., 0, 'f', 0);
+}
+
+[[nodiscard]] QString SpeedLabel() {
+	return u"Yuklash: "_q + SpeedText(DownloadSpeed())
+		+ u"  \u00B7  eng yuqori: "_q + SpeedText(DownloadPeak());
+}
+
 } // namespace
 
 void SettingsBox(
@@ -227,6 +239,29 @@ void SettingsBox(
 	iconButton->setClickedCallback([=] {
 		controller->show(Box(Paradoks::AppIcon::PickerBox));
 	});
+
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, rpl::single(u"Yuklash tezligi"_q));
+	const auto speedLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(SpeedLabel());
+	const auto speedButton = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			speedLabel->value(),
+			st::settingsButtonNoIcon),
+		style::margins());
+	speedButton->setClickedCallback([=] {
+		ResetDownloadPeak();
+		*speedLabel = SpeedLabel();
+	});
+	const auto speedTimer = box->lifetime().make_state<base::Timer>([=] {
+		*speedLabel = SpeedLabel();
+	});
+	speedTimer->callEach(500);
+	AddText(
+		box,
+		u"Telegram'dan fayl yuklab olinayotganda tezlik shu yerda "
+		"ko'rinadi. Eng yuqori qiymatni nolga tushirish uchun bosing."_q);
 
 	Ui::AddSkip(container);
 	Ui::AddSubsectionTitle(container, rpl::single(u"Ovoz effekti"_q));

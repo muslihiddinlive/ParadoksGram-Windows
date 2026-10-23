@@ -15,6 +15,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QSettings>
 
 #include <array>
+#include <chrono>
+#include <deque>
 #include <atomic>
 #include <mutex>
 
@@ -136,6 +138,55 @@ void SetGhostSchedule(int startMinutes, int endMinutes) {
 	auto settings = QSettings(FilePath(), QSettings::IniFormat);
 	settings.setValue(u"ghost_sched_start"_q, startMinutes);
 	settings.setValue(u"ghost_sched_end"_q, endMinutes);
+}
+
+namespace {
+
+struct SpeedSample {
+	std::chrono::steady_clock::time_point time;
+	int64 bytes = 0;
+};
+
+// Used from the main thread only.
+std::deque<SpeedSample> SpeedSamples;
+double SpeedPeak = 0.;
+
+constexpr auto kSpeedWindow = std::chrono::milliseconds(1000);
+
+void TrimSamples(std::chrono::steady_clock::time_point now) {
+	while (!SpeedSamples.empty()
+		&& (now - SpeedSamples.front().time) > kSpeedWindow) {
+		SpeedSamples.pop_front();
+	}
+}
+
+[[nodiscard]] double CurrentSpeed(std::chrono::steady_clock::time_point now) {
+	TrimSamples(now);
+	auto sum = int64(0);
+	for (const auto &sample : SpeedSamples) {
+		sum += sample.bytes;
+	}
+	return double(sum);
+}
+
+} // namespace
+
+void NoteDownloaded(int64 bytes) {
+	const auto now = std::chrono::steady_clock::now();
+	SpeedSamples.push_back({ now, bytes });
+	SpeedPeak = std::max(SpeedPeak, CurrentSpeed(now));
+}
+
+double DownloadSpeed() {
+	return CurrentSpeed(std::chrono::steady_clock::now());
+}
+
+double DownloadPeak() {
+	return SpeedPeak;
+}
+
+void ResetDownloadPeak() {
+	SpeedPeak = 0.;
 }
 
 bool SevenZipBroken() {

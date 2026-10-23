@@ -43,6 +43,12 @@ void SetGhostSchedule(int startMinutes, int endMinutes);
 // True only once per working directory (first launch of this client).
 [[nodiscard]] bool TakeFirstRun();
 
+// Download speed meter (bytes per second), fed by the file downloader.
+void NoteDownloaded(int64 bytes);
+[[nodiscard]] double DownloadSpeed();
+[[nodiscard]] double DownloadPeak();
+void ResetDownloadPeak();
+
 [[nodiscard]] bool SevenZipBroken();
 void SetSevenZipBroken();
 

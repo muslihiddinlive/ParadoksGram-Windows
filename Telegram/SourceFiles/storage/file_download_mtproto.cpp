@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/file_download_mtproto.h"
 
+#include "paradoks/paradoks_config.h"
+
 #include "data/data_document.h"
 #include "data/data_file_origin.h"
 #include "storage/cache/storage_cache_types.h"
@@ -143,6 +145,9 @@ int64 mtpFileLoader::takeNextRequestOffset() {
 }
 
 bool mtpFileLoader::feedPart(int64 offset, const QByteArray &bytes) {
+	if (!_paradoksResume) {
+		Paradoks::NoteDownloaded(bytes.size());
+	}
 	const auto buffer = bytes::make_span(bytes);
 	if (!writeResultPart(offset, buffer)) {
 		return false;
@@ -192,7 +197,9 @@ void mtpFileLoader::startLoadingWithPartial(const QByteArray &data) {
 	const auto use = parts * int64(Storage::kDownloadPartSize);
 	if (use > 0) {
 		_nextRequestOffset = use;
+		_paradoksResume = true;
 		feedPart(0, QByteArray::fromRawData(data.data() + kPrefix, use));
+		_paradoksResume = false;
 	}
 	startLoading();
 }
