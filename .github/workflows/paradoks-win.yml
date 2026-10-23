@@ -295,6 +295,15 @@ jobs:
             --notes "Commit ${GITHUB_SHA::7}" \
             --prerelease
 
+          # Fixed tag: always points at the newest build, so one URL never changes.
+          gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create latest --repo "$GITHUB_REPOSITORY" \
+              --title "ParadoksGram Windows (latest)" \
+              --notes "Newest build" --prerelease
+          gh release upload latest "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release edit latest --repo "$GITHUB_REPOSITORY" \
+            --notes "Build ${{ github.run_number }}, commit ${GITHUB_SHA::7}"
+
       - name: Notify Telegram.
         if: always()
         shell: bash
