@@ -20,10 +20,10 @@ namespace Storage {
 namespace {
 
 constexpr auto kKillSessionTimeout = 15 * crl::time(1000);
-constexpr auto kStartWaitedInSession = 4 * kDownloadPartSize;
-constexpr auto kMaxWaitedInSession = 16 * kDownloadPartSize;
-constexpr auto kStartSessionsCount = 1;
-constexpr auto kMaxSessionsCount = 8;
+constexpr auto kStartWaitedInSession = 8 * kDownloadPartSize;
+constexpr auto kMaxWaitedInSession = 24 * kDownloadPartSize;
+constexpr auto kStartSessionsCount = 4;
+constexpr auto kMaxSessionsCount = 12;
 constexpr auto kMaxTrackedSessionRemoves = 64;
 constexpr auto kRetryAddSessionTimeout = 8 * crl::time(1000);
 constexpr auto kRetryAddSessionSuccesses = 3;

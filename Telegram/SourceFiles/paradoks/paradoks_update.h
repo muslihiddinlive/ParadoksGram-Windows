@@ -30,12 +30,22 @@ enum class Result {
 // Newer build number as a stream (0 while there is none).
 [[nodiscard]] rpl::producer<int> AvailableValue();
 
+// Background update progress: -1 idle, 0..100 downloading, 101 installing.
+[[nodiscard]] int Progress();
+[[nodiscard]] rpl::producer<int> ProgressValue();
+
+// Text of an update failure (the UI shows it).
+[[nodiscard]] rpl::producer<QString> Failures();
+
+// Downloads in the background, replaces Telegram.exe and restarts.
+void Start();
+
 // Delayed one-time check after the app starts, then periodic.
 void CheckOnStart();
 
 void Check(Fn<void(Result)> done);
 
-// "New version" box: downloads, replaces Telegram.exe and restarts.
+// Same as Start() (kept for callers that pass a controller).
 void ShowBox(not_null<Window::SessionController*> controller);
 
 } // namespace Paradoks::Update

@@ -261,6 +261,7 @@ private:
 	void showSearchInTopBar(anim::type animated);
 	void checkUpdateStatus();
 	void checkParadoksUpdate(int build);
+	void updateParadoksProgress(int percent);
 	void openBotMainApp(not_null<UserData*> bot);
 	void changeOpenedSubsection(
 		FnMut<void()> change,

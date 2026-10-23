@@ -138,9 +138,9 @@ void SettingsBox(
 	const auto updateTitle = [] {
 		const auto available = Update::AvailableBuild();
 		return (available > 0)
-			? u"Yangi versiya bor: build-%1. Yangilash"_q.arg(available)
+			? u"Yangi versiya bor: V%1. Yangilash"_q.arg(available)
 			: (Update::CurrentBuild() > 0)
-			? u"Yangilanishni tekshirish (hozir: build-%1)"_q.arg(
+			? u"Yangilanishni tekshirish (hozir: V%1)"_q.arg(
 				Update::CurrentBuild())
 			: u"Yangilanish (mahalliy build, o'chiq)"_q;
 	};

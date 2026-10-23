@@ -138,6 +138,16 @@ void SetGhostSchedule(int startMinutes, int endMinutes) {
 	settings.setValue(u"ghost_sched_end"_q, endMinutes);
 }
 
+bool SevenZipBroken() {
+	auto settings = QSettings(FilePath(), QSettings::IniFormat);
+	return settings.value(u"update/sevenzip_broken"_q, false).toBool();
+}
+
+void SetSevenZipBroken() {
+	auto settings = QSettings(FilePath(), QSettings::IniFormat);
+	settings.setValue(u"update/sevenzip_broken"_q, true);
+}
+
 int AppIconVariant() {
 	EnsureLoaded();
 	return IconVariant.load();

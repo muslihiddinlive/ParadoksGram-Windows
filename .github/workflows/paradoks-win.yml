@@ -253,7 +253,9 @@ jobs:
           echo "Using $exe"
           cp "$exe" artifact/
           cd artifact
-          7z a ../ParadoksGram-Windows-x64.zip Telegram.exe
+          7z a -tzip -mx=9 -mfb=258 -mpass=15 ../ParadoksGram-Windows-x64.zip Telegram.exe
+          7z a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=on ../ParadoksGram-Windows-x64.7z Telegram.exe
+          ls -l ../ParadoksGram-Windows-x64.*
 
       - name: Installer.
         continue-on-error: true
@@ -285,6 +287,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           files=(ParadoksGram-Windows-x64.zip)
+          if [ -f ParadoksGram-Windows-x64.7z ]; then files+=(ParadoksGram-Windows-x64.7z); fi
           if [ -f ParadoksGram-Setup.exe ]; then files+=(ParadoksGram-Setup.exe); fi
           gh release create "build-${{ github.run_number }}" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \

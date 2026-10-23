@@ -8,15 +8,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_update.h"
 
 #include "core/application.h"
-#include "lang/lang_keys.h"
-#include "ui/layers/generic_box.h"
-#include "ui/widgets/labels.h"
-#include "window/window_controller.h"
-#include "window/window_session_controller.h"
-#include "styles/style_layers.h"
+#include "paradoks/paradoks_config.h"
 
 #include <algorithm>
 #include <memory>
+#include <vector>
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QCryptographicHash>
@@ -30,6 +26,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QProcess>
 #include <QtCore/QRegularExpression>
 #include <QtCore/QTimer>
+#include <QtCore/QtGlobal>
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
@@ -50,18 +47,78 @@ constexpr auto kReleasesUrl = "https://api.github.com/repos/"
 constexpr auto kDownloadPrefix = "https://github.com/"
 	"muslihiddinlive/ParadoksGram-Windows/releases/download/";
 constexpr auto kAssetName = "ParadoksGram-Windows-x64.zip";
+constexpr auto kSevenAssetName = "ParadoksGram-Windows-x64.7z";
 constexpr auto kMinExeSize = 5 * 1024 * 1024;
+constexpr auto kParallelMinSize = qint64(2 * 1024 * 1024);
+constexpr auto kParallelParts = 6;
+constexpr auto kChunkTries = 5;
 
-struct Info {
-	int build = 0;
+struct Source {
 	QString url;
 	QString sha256;
 	qint64 size = 0;
+	bool sevenZip = false;
+};
+
+struct Info {
+	int build = 0;
+	Source zip;
+	Source sevenZip;
+};
+
+struct Chunk {
+	qint64 begin = 0;
+	qint64 end = 0; // Inclusive.
+	qint64 received = 0;
+	int tries = 0;
+	bool done = false;
+	QPointer<QNetworkReply> reply;
+};
+
+// A running background download/install.
+struct Job {
+	QPointer<QNetworkReply> reply; // Single-stream mode.
+	QPointer<QProcess> process;
+	std::unique_ptr<QFile> file;
+	std::vector<Chunk> chunks;
+	qint64 received = 0;
+	int percent = -1;
+	int generation = 0;
+	QString dir;
+	QString archive;
+	Info info;
+	Source source;
+	bool cancelled = false;
+	bool finished = false;
+	Fn<void(const QString &)> status;
+	Fn<void(const QString &)> fail;
+
+	void abortReplies() {
+		if (reply) {
+			reply->abort();
+		}
+		for (auto &chunk : chunks) {
+			if (chunk.reply) {
+				chunk.reply->abort();
+			}
+		}
+	}
+	void cancel() {
+		cancelled = true;
+		abortReplies();
+		if (process) {
+			process->kill();
+		}
+	}
 };
 
 struct State {
 	Info available;
 	rpl::variable<int> availableBuild = rpl::variable<int>(0);
+	// -1 idle, 0..100 downloading, 101 installing.
+	rpl::variable<int> progress = rpl::variable<int>(-1);
+	rpl::event_stream<QString> failed;
+	std::shared_ptr<Job> job;
 	bool started = false;
 };
 
@@ -81,14 +138,37 @@ struct State {
 	return result;
 }
 
-[[nodiscard]] QNetworkRequest MakeRequest(const QUrl &url) {
+[[nodiscard]] QNetworkRequest MakeRequest(
+		const QUrl &url,
+		bool binary = false) {
 	auto request = QNetworkRequest(url);
-	request.setRawHeader("Accept", "application/vnd.github+json");
+	request.setRawHeader(
+		"Accept",
+		binary ? "application/octet-stream" : "application/vnd.github+json");
 	request.setRawHeader("User-Agent", "ParadoksGram-Windows");
 	request.setAttribute(
 		QNetworkRequest::RedirectPolicyAttribute,
 		QNetworkRequest::NoLessSafeRedirectPolicy);
 	return request;
+}
+
+[[nodiscard]] Source ReadAsset(const QJsonObject &asset, bool sevenZip) {
+	const auto url = asset.value(u"browser_download_url"_q).toString();
+	if (!url.startsWith(QLatin1String(kDownloadPrefix))) {
+		return {};
+	}
+	auto digest = asset.value(u"digest"_q).toString();
+	if (digest.startsWith(u"sha256:"_q)) {
+		digest = digest.mid(7).toLower();
+	} else {
+		digest = QString();
+	}
+	return {
+		.url = url,
+		.sha256 = digest,
+		.size = qint64(asset.value(u"size"_q).toDouble()),
+		.sevenZip = sevenZip,
+	};
 }
 
 bool Parse(const QByteArray &data) {
@@ -112,28 +192,19 @@ bool Parse(const QByteArray &data) {
 		if (build <= best.build) {
 			continue;
 		}
+		auto found = Info();
 		for (const auto &item : release.value(u"assets"_q).toArray()) {
 			const auto asset = item.toObject();
-			if (asset.value(u"name"_q).toString() != QLatin1String(kAssetName)) {
-				continue;
+			const auto name = asset.value(u"name"_q).toString();
+			if (name == QLatin1String(kAssetName)) {
+				found.zip = ReadAsset(asset, false);
+			} else if (name == QLatin1String(kSevenAssetName)) {
+				found.sevenZip = ReadAsset(asset, true);
 			}
-			const auto url = asset.value(u"browser_download_url"_q).toString();
-			if (!url.startsWith(QLatin1String(kDownloadPrefix))) {
-				continue;
-			}
-			auto digest = asset.value(u"digest"_q).toString();
-			if (digest.startsWith(u"sha256:"_q)) {
-				digest = digest.mid(7).toLower();
-			} else {
-				digest = QString();
-			}
-			best = Info{
-				.build = build,
-				.url = url,
-				.sha256 = digest,
-				.size = qint64(asset.value(u"size"_q).toDouble()),
-			};
-			break;
+		}
+		if (!found.zip.url.isEmpty()) {
+			found.build = build;
+			best = found;
 		}
 	}
 	auto &state = Data();
@@ -142,28 +213,9 @@ bool Parse(const QByteArray &data) {
 	return true;
 }
 
-// A running download/install, shared with the box that shows its progress.
-struct Job {
-	QPointer<QNetworkReply> reply;
-	QPointer<QProcess> process;
-	std::unique_ptr<QFile> file;
-	QCryptographicHash hash = QCryptographicHash(QCryptographicHash::Sha256);
-	QString dir;
-	bool cancelled = false;
-	bool finished = false;
-	Fn<void(const QString &)> status;
-	Fn<void(const QString &)> fail;
-
-	void cancel() {
-		cancelled = true;
-		if (reply) {
-			reply->abort();
-		}
-		if (process) {
-			process->kill();
-		}
-	}
-};
+void SetProgress(int percent) {
+	Data().progress = percent;
+}
 
 [[nodiscard]] QString QuoteBatch(const QString &path) {
 	return u"\""_q + QDir::toNativeSeparators(path) + u"\""_q;
@@ -284,12 +336,41 @@ void Apply(const std::shared_ptr<Job> &job) {
 	});
 }
 
-void Extract(const std::shared_ptr<Job> &job, const QString &zip) {
+void Download(const std::shared_ptr<Job> &job, const Source &source);
+
+[[nodiscard]] bool FileHashMatches(const QString &path, const QString &sha) {
+	auto file = QFile(path);
+	if (!file.open(QIODevice::ReadOnly)) {
+		return false;
+	}
+	auto hash = QCryptographicHash(QCryptographicHash::Sha256);
+	if (!hash.addData(&file)) {
+		return false;
+	}
+	return QString::fromLatin1(hash.result().toHex()) == sha;
+}
+
+void Extract(const std::shared_ptr<Job> &job) {
 	const auto out = job->dir + u"/out"_q;
 	QDir(out).removeRecursively();
 	QDir().mkpath(out);
-	job->status(u"Fayllar ochilmoqda..."_q);
+	job->status(QString());
 
+	const auto archive = job->archive;
+	const auto sevenZip = job->source.sevenZip;
+	// 7z archives are opened with the system tar.exe; if that is not
+	// possible on this Windows, remember it and use the zip instead.
+	const auto retryWithZip = [=] {
+		if (!sevenZip) {
+			return false;
+		}
+		SetSevenZipBroken();
+		if (job->info.zip.url.isEmpty()) {
+			return false;
+		}
+		Download(job, job->info.zip);
+		return true;
+	};
 	const auto escape = [](QString path) {
 		return QDir::toNativeSeparators(path).replace('\'', u"''"_q);
 	};
@@ -308,8 +389,14 @@ void Extract(const std::shared_ptr<Job> &job, const QString &zip) {
 			process->deleteLater();
 			if (job->cancelled) {
 				return;
-			} else if (status != QProcess::NormalExit || code != 0) {
-				job->fail(u"Arxivni ochib bo'lmadi."_q);
+			}
+			const auto ok = (status == QProcess::NormalExit)
+				&& (code == 0)
+				&& QFileInfo::exists(out + u"/Telegram.exe"_q);
+			if (!ok) {
+				if (!retryWithZip()) {
+					job->fail(u"Arxivni ochib bo'lmadi."_q);
+				}
 				return;
 			}
 			Apply(job);
@@ -320,134 +407,239 @@ void Extract(const std::shared_ptr<Job> &job, const QString &zip) {
 		[=](QProcess::ProcessError error) {
 			if (error == QProcess::FailedToStart && !job->cancelled) {
 				process->deleteLater();
-				job->fail(u"PowerShell ishga tushmadi."_q);
+				if (!retryWithZip()) {
+					job->fail(u"Arxivni ochuvchi ishga tushmadi."_q);
+				}
 			}
 		});
-	process->start(u"powershell.exe"_q, {
-		u"-NoProfile"_q,
-		u"-NonInteractive"_q,
-		u"-ExecutionPolicy"_q,
-		u"Bypass"_q,
-		u"-Command"_q,
-		u"Expand-Archive -LiteralPath '%1' -DestinationPath '%2' -Force"_q
-			.arg(escape(zip), escape(out)),
-	});
+	if (sevenZip) {
+		const auto root = qEnvironmentVariable("SystemRoot", u"C:/Windows"_q);
+		process->start(
+			QDir::toNativeSeparators(root + u"/System32/tar.exe"_q),
+			{ u"-xf"_q, QDir::toNativeSeparators(archive),
+				u"-C"_q, QDir::toNativeSeparators(out) });
+	} else {
+		process->start(u"powershell.exe"_q, {
+			u"-NoProfile"_q,
+			u"-NonInteractive"_q,
+			u"-ExecutionPolicy"_q,
+			u"Bypass"_q,
+			u"-Command"_q,
+			u"Expand-Archive -LiteralPath '%1' -DestinationPath '%2' -Force"_q
+				.arg(escape(archive), escape(out)),
+		});
+	}
 }
 
-void Download(const std::shared_ptr<Job> &job, const Info &info) {
-	job->dir = QDir::tempPath() + u"/ParadoksGram-update"_q;
-	QDir(job->dir).removeRecursively();
-	QDir().mkpath(job->dir);
-	const auto zip = job->dir + u"/update.zip"_q;
-	job->file = std::make_unique<QFile>(zip);
-	if (!job->file->open(QIODevice::WriteOnly)) {
-		job->fail(u"Vaqtinchalik faylni ochib bo'lmadi."_q);
+void Finish(const std::shared_ptr<Job> &job) {
+	if (job->file) {
+		job->file->flush();
+		job->file->close();
+	}
+	const auto &source = job->source;
+	const auto written = QFileInfo(job->archive).size();
+	if (source.size > 0 && written != source.size) {
+		job->fail(u"Fayl to'liq yuklanmadi."_q);
 		return;
 	}
+	if (!source.sha256.isEmpty()
+		&& !FileHashMatches(job->archive, source.sha256)) {
+		job->fail(u"Fayl nazorat summasi mos kelmadi."_q);
+		return;
+	}
+	Extract(job);
+}
 
-	const auto reply = Network()->get(MakeRequest(QUrl(info.url)));
+void ReportProgress(const std::shared_ptr<Job> &job, qint64 total) {
+	const auto percent = (total > 0)
+		? int(std::min<qint64>(99, job->received * 100 / total))
+		: 0;
+	if (percent != job->percent) {
+		job->percent = percent;
+		SetProgress(percent);
+	}
+}
+
+void StartSingle(const std::shared_ptr<Job> &job) {
+	const auto generation = job->generation;
+	job->file->resize(0);
+	job->file->seek(0);
+	job->received = 0;
+
+	const auto reply = Network()->get(
+		MakeRequest(QUrl(job->source.url), true));
 	job->reply = reply;
-	job->status(u"Yuklanmoqda: 0%"_q);
 
-	QObject::connect(reply, &QNetworkReply::readyRead, [=] {
+	const auto drain = [=] {
 		const auto data = reply->readAll();
-		if (job->file && job->file->isOpen()) {
+		if (!data.isEmpty() && job->file && job->file->isOpen()) {
 			job->file->write(data);
-			job->hash.addData(data);
+			job->received += data.size();
+			ReportProgress(job, job->source.size);
+		}
+	};
+	QObject::connect(reply, &QNetworkReply::readyRead, [=] {
+		if (!job->cancelled && generation == job->generation) {
+			drain();
 		}
 	});
-	QObject::connect(
-		reply,
-		&QNetworkReply::downloadProgress,
-		[=](qint64 received, qint64 total) {
-			if (total <= 0) {
-				total = info.size;
-			}
-			if (total > 0 && !job->cancelled) {
-				job->status(u"Yuklanmoqda: %1%"_q.arg(
-					std::min<qint64>(100, received * 100 / total)));
-			}
-		});
 	QObject::connect(reply, &QNetworkReply::finished, [=] {
 		reply->deleteLater();
-		if (job->cancelled) {
+		if (job->cancelled || generation != job->generation) {
 			return;
 		}
-		const auto data = reply->readAll();
-		if (!data.isEmpty() && job->file->isOpen()) {
-			job->file->write(data);
-			job->hash.addData(data);
-		}
-		const auto failed = (reply->error() != QNetworkReply::NoError);
-		job->file->close();
-		if (failed) {
+		drain();
+		if (reply->error() != QNetworkReply::NoError) {
+			job->file->close();
 			job->fail(u"Yuklab bo'lmadi: "_q + reply->errorString());
 			return;
 		}
-		const auto written = QFileInfo(zip).size();
-		if (info.size > 0 && written != info.size) {
-			job->fail(u"Fayl to'liq yuklanmadi."_q);
-			return;
-		}
-		if (!info.sha256.isEmpty()
-			&& QString::fromLatin1(job->hash.result().toHex())
-				!= info.sha256) {
-			job->fail(u"Fayl nazorat summasi mos kelmadi."_q);
-			return;
-		}
-		Extract(job, zip);
+		Finish(job);
 	});
 }
 
-void UpdateBox(
-		not_null<Ui::GenericBox*> box,
-		not_null<Window::SessionController*> controller) {
-	const auto info = Data().available;
-	box->setTitle(rpl::single(u"Yangi versiya"_q));
-	const auto label = QPointer<Ui::FlatLabel>(box->addRow(
-		object_ptr<Ui::FlatLabel>(
-			box,
-			u"ParadoksGram build-%1 chiqdi (sizda build-%2).\n"
-			"Yangilasangiz, ilova yopilib, qayta ochiladi. "
-			"Akkauntlar va sozlamalar saqlanadi."_q.arg(
-				info.build).arg(CurrentBuild()),
-			st::boxLabel)));
+void StartChunk(const std::shared_ptr<Job> &job, int index);
 
-	const auto job = std::make_shared<Job>();
-	const auto showClose = [=] {
-		box->clearButtons();
-		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
-	};
-	job->status = [=](const QString &text) {
-		if (label) {
-			label->setText(text);
+// The server did not honor Range: restart as one plain download.
+void FallbackToSingle(const std::shared_ptr<Job> &job, int generation) {
+	if (job->cancelled || generation != job->generation) {
+		return;
+	}
+	++job->generation;
+	job->abortReplies();
+	job->chunks.clear();
+	StartSingle(job);
+}
+
+void ConsumeChunk(
+		const std::shared_ptr<Job> &job,
+		int index,
+		QNetworkReply *reply) {
+	auto &chunk = job->chunks[index];
+	auto data = reply->readAll();
+	const auto code = reply->attribute(
+		QNetworkRequest::HttpStatusCodeAttribute).toInt();
+	if (data.isEmpty() || code != 206) {
+		return;
+	}
+	const auto left = chunk.end + 1 - (chunk.begin + chunk.received);
+	if (data.size() > left) {
+		data.truncate(int(std::max<qint64>(0, left)));
+	}
+	if (!data.isEmpty()
+		&& job->file->seek(chunk.begin + chunk.received)
+		&& job->file->write(data) == data.size()) {
+		chunk.received += data.size();
+		job->received += data.size();
+		ReportProgress(job, job->source.size);
+	}
+}
+
+void StartChunk(const std::shared_ptr<Job> &job, int index) {
+	const auto generation = job->generation;
+	auto &chunk = job->chunks[index];
+	auto request = MakeRequest(QUrl(job->source.url), true);
+	request.setRawHeader("Range", "bytes="
+		+ QByteArray::number(chunk.begin + chunk.received)
+		+ "-"
+		+ QByteArray::number(chunk.end));
+	const auto reply = Network()->get(request);
+	chunk.reply = reply;
+
+	QObject::connect(reply, &QNetworkReply::readyRead, [=] {
+		if (job->cancelled || generation != job->generation) {
+			return;
 		}
-	};
-	const auto raw = job.get();
-	job->fail = [=](const QString &text) {
-		raw->finished = true;
-		if (label) {
-			label->setText(text
-				+ u"\nQo'lda yuklash: github.com/muslihiddinlive/"
-				"ParadoksGram-Windows/releases"_q);
+		const auto code = reply->attribute(
+			QNetworkRequest::HttpStatusCodeAttribute).toInt();
+		if (code != 206) {
+			QTimer::singleShot(0, [=] {
+				FallbackToSingle(job, generation);
+			});
+			return;
 		}
-		showClose();
-	};
-	box->lifetime().add([=] {
-		if (!job->finished) {
-			job->cancel();
+		ConsumeChunk(job, index, reply);
+	});
+	QObject::connect(reply, &QNetworkReply::finished, [=] {
+		reply->deleteLater();
+		if (job->cancelled || generation != job->generation) {
+			return;
+		}
+		const auto code = reply->attribute(
+			QNetworkRequest::HttpStatusCodeAttribute).toInt();
+		if (code == 200) {
+			FallbackToSingle(job, generation);
+			return;
+		}
+		ConsumeChunk(job, index, reply);
+		auto &chunk = job->chunks[index];
+		const auto complete = (chunk.begin + chunk.received > chunk.end);
+		if (reply->error() != QNetworkReply::NoError || !complete) {
+			if (++chunk.tries > kChunkTries) {
+				job->file->close();
+				job->fail(u"Yuklab bo'lmadi: "_q + reply->errorString());
+				return;
+			}
+			QTimer::singleShot(300 * chunk.tries, [=] {
+				if (!job->cancelled && generation == job->generation) {
+					StartChunk(job, index);
+				}
+			});
+			return;
+		}
+		chunk.done = true;
+		const auto all = std::all_of(
+			job->chunks.begin(),
+			job->chunks.end(),
+			[](const Chunk &c) { return c.done; });
+		if (all) {
+			Finish(job);
 		}
 	});
+}
 
-	box->addButton(rpl::single(u"Yangilash"_q), [=] {
-		box->clearButtons();
-		box->addButton(rpl::single(u"Bekor qilish"_q), [=] {
-			job->cancel();
-			box->closeBox();
-		});
-		Download(job, info);
-	});
-	box->addButton(rpl::single(u"Keyinroq"_q), [=] { box->closeBox(); });
+void StartParallel(const std::shared_ptr<Job> &job) {
+	const auto total = job->source.size;
+	job->file->resize(total);
+	job->received = 0;
+	const auto step = (total + kParallelParts - 1) / kParallelParts;
+	for (auto begin = qint64(0); begin < total; begin += step) {
+		auto chunk = Chunk();
+		chunk.begin = begin;
+		chunk.end = std::min(total, begin + step) - 1;
+		job->chunks.push_back(std::move(chunk));
+	}
+	for (auto i = 0; i != int(job->chunks.size()); ++i) {
+		StartChunk(job, i);
+	}
+}
+
+void Download(const std::shared_ptr<Job> &job, const Source &source) {
+	++job->generation;
+	job->abortReplies();
+	job->chunks.clear();
+	if (job->file) {
+		job->file->close();
+		job->file = nullptr;
+	}
+	job->source = source;
+	job->dir = QDir::tempPath() + u"/ParadoksGram-update"_q;
+	QDir(job->dir).removeRecursively();
+	QDir().mkpath(job->dir);
+	job->archive = job->dir
+		+ (source.sevenZip ? u"/update.7z"_q : u"/update.zip"_q);
+	job->file = std::make_unique<QFile>(job->archive);
+	if (!job->file->open(QIODevice::ReadWrite | QIODevice::Truncate)) {
+		job->fail(u"Vaqtinchalik faylni ochib bo'lmadi."_q);
+		return;
+	}
+	job->percent = -1;
+	SetProgress(0);
+	if (source.size >= kParallelMinSize) {
+		StartParallel(job);
+	} else {
+		StartSingle(job);
+	}
 }
 
 } // namespace
@@ -462,6 +654,44 @@ int AvailableBuild() {
 
 rpl::producer<int> AvailableValue() {
 	return Data().availableBuild.value();
+}
+
+int Progress() {
+	return Data().progress.current();
+}
+
+rpl::producer<int> ProgressValue() {
+	return Data().progress.value();
+}
+
+rpl::producer<QString> Failures() {
+	return Data().failed.events();
+}
+
+void Start() {
+	auto &state = Data();
+	if (state.available.build <= 0) {
+		return;
+	} else if (state.job && !state.job->finished) {
+		return;
+	}
+	const auto job = std::make_shared<Job>();
+	state.job = job;
+	job->info = state.available;
+	job->status = [](const QString &) {
+		SetProgress(101);
+	};
+	const auto raw = job.get();
+	job->fail = [=](const QString &text) {
+		raw->finished = true;
+		SetProgress(-1);
+		Data().failed.fire_copy(text
+			+ u"\nQo'lda yuklash: github.com/muslihiddinlive/"
+			"ParadoksGram-Windows/releases"_q);
+	};
+	const auto useSevenZip = !job->info.sevenZip.url.isEmpty()
+		&& !SevenZipBroken();
+	Download(job, useSevenZip ? job->info.sevenZip : job->info.zip);
 }
 
 void Check(Fn<void(Result)> done) {
@@ -488,9 +718,8 @@ void Check(Fn<void(Result)> done) {
 }
 
 void ShowBox(not_null<Window::SessionController*> controller) {
-	if (AvailableBuild() > 0) {
-		controller->show(Box(UpdateBox, controller));
-	}
+	Q_UNUSED(controller);
+	Start();
 }
 
 void CheckOnStart() {

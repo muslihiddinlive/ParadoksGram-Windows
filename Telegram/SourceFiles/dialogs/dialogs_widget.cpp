@@ -49,6 +49,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/controls/jump_down_button.h"
 #include "ui/controls/swipe_handler.h"
 #include "ui/painter.h"
+#include "ui/boxes/confirm_box.h"
+#include "ui/effects/animations.h"
 #include "ui/rect.h"
 #include "ui/screen_reader_mode.h"
 #include "ui/ui_utility.h"
@@ -234,6 +236,19 @@ QImage CommunityAddChatNarrowButton::prepareRippleMask() const {
 
 const char kOptionForumHideChatsList[] = "forum-hide-chats-list";
 
+namespace {
+
+[[nodiscard]] QString ParadoksUpdateText(int build, int percent) {
+	if (percent < 0) {
+		return u"ParadoksGram yangilanishi: V%1"_q.arg(build);
+	} else if (percent > 100) {
+		return u"V%1 o'rnatilmoqda..."_q.arg(build);
+	}
+	return u"V%1 yuklanmoqda  \u00B7  %2%"_q.arg(build).arg(percent);
+}
+
+} // namespace
+
 class Widget::BottomButton : public Ui::RippleButton {
 public:
 	BottomButton(
@@ -245,6 +260,7 @@ public:
 		bool hasTextIcon);
 
 	void setText(const QString &text);
+	void setProgress(int percent); // -1 hides the progress.
 
 protected:
 	void paintEvent(QPaintEvent *e) override;
@@ -253,8 +269,12 @@ protected:
 
 private:
 	void radialAnimationCallback();
+	void paintSpinner(QPainter &p, QRect rect);
 
 	QString _text;
+	int _progress = -1;
+	Ui::Animations::Basic _spin;
+	crl::time _spinStarted = 0;
 	const style::FlatButton &_st;
 	const style::icon &_icon;
 	const style::icon &_iconOver;
@@ -280,6 +300,11 @@ Widget::BottomButton::BottomButton(
 , _hasTextIcon(hasTextIcon) {
 	resize(st::columnMinimalWidthLeft, _st.height);
 
+	_spin.init([=](crl::time) {
+		update();
+		return (_progress >= 0);
+	});
+
 	if (_hasTextIcon) {
 		rpl::single(rpl::empty_value()) | rpl::then(
 			style::PaletteChanged()
@@ -292,6 +317,36 @@ Widget::BottomButton::BottomButton(
 void Widget::BottomButton::setText(const QString &text) {
 	_text = text;
 	update();
+}
+
+void Widget::BottomButton::setProgress(int percent) {
+	if (_progress == percent) {
+		return;
+	}
+	const auto was = _progress;
+	_progress = percent;
+	if (_progress >= 0 && was < 0) {
+		_spinStarted = crl::now();
+		_spin.start();
+	} else if (_progress < 0) {
+		_spin.stop();
+	}
+	update();
+}
+
+void Widget::BottomButton::paintSpinner(QPainter &p, QRect rect) {
+	const auto angle = std::fmod(
+		(crl::now() - _spinStarted) * 360. / 900.,
+		360.);
+	auto hq = PainterHighQualityEnabler(p);
+	const auto inner = QRectF(rect).marginsRemoved(QMarginsF(2., 2., 2., 2.));
+	auto gradient = QConicalGradient(inner.center(), -angle);
+	gradient.setColorAt(0., QColor(255, 255, 255, 255));
+	gradient.setColorAt(0.7, QColor(255, 255, 255, 0));
+	gradient.setColorAt(1., QColor(255, 255, 255, 0));
+	p.setPen(QPen(QBrush(gradient), 2.5, Qt::SolidLine, Qt::RoundCap));
+	p.setBrush(Qt::NoBrush);
+	p.drawEllipse(inner);
 }
 
 void Widget::BottomButton::radialAnimationCallback() {
@@ -337,6 +392,17 @@ void Widget::BottomButton::paintEvent(QPaintEvent *e) {
 				anim::with_alpha(st::universalRippleAnimation.color->c, .3));
 		}
 
+		if (_progress >= 0) {
+			const auto fraction = std::clamp(_progress, 0, 100) / 100.;
+			p.fillRect(
+				QRect(
+					0,
+					r.y(),
+					int(std::round(width() * fraction)),
+					r.height()),
+				QColor(255, 255, 255, 70));
+		}
+
 		if (!isDisabled()) {
 			paintRipple(p, 0, 0, &st::universalRippleAnimation.color->c);
 		}
@@ -368,7 +434,14 @@ void Widget::BottomButton::paintEvent(QPaintEvent *e) {
 				rect.translated(iconSize.width() + skip, 0),
 				_text,
 				style::al_top);
-			p.drawImage(rect.x(), (height() - iconSize.height()) / 2, icon);
+			const auto iconTop = (height() - iconSize.height()) / 2;
+			if (_progress >= 0) {
+				paintSpinner(
+					p,
+					QRect(rect.x(), iconTop, iconSize.width(), iconSize.height()));
+			} else {
+				p.drawImage(rect.x(), iconTop, icon);
+			}
 		} else {
 			p.drawText(r, _text, style::al_top);
 		}
@@ -382,10 +455,18 @@ void Widget::BottomButton::paintEvent(QPaintEvent *e) {
 	} else {
 		if (_hasTextIcon) {
 			const auto size = _textIcon.size() / style::DevicePixelRatio();
-			p.drawImage(
-				(width() - size.width()) / 2,
-				(height() - size.height()) / 2,
-				_textIcon);
+			if (_progress >= 0) {
+				paintSpinner(p, QRect(
+					(width() - size.width()) / 2,
+					(height() - size.height()) / 2,
+					size.width(),
+					size.height()));
+			} else {
+				p.drawImage(
+					(width() - size.width()) / 2,
+					(height() - size.height()) / 2,
+					_textIcon);
+			}
 		} else {
 			(over ? _iconOver : _icon).paintInCenter(p, r);
 		}
@@ -674,6 +755,18 @@ Widget::Widget(
 	Paradoks::Update::AvailableValue(
 	) | rpl::on_next([=](int build) {
 		checkParadoksUpdate(build);
+	}, lifetime());
+
+	Paradoks::Update::ProgressValue(
+	) | rpl::on_next([=](int percent) {
+		updateParadoksProgress(percent);
+	}, lifetime());
+
+	Paradoks::Update::Failures(
+	) | rpl::on_next([=](const QString &text) {
+		if (_layout != Layout::Child) {
+			controller()->show(Ui::MakeInformBox(text));
+		}
 	}, lifetime());
 
 	_cancelSearch->setClickedCallback([=] {
@@ -2671,6 +2764,16 @@ void Widget::checkUpdateStatus() {
 	updateControlsGeometry();
 }
 
+void Widget::updateParadoksProgress(int percent) {
+	if (!_updateTelegram) {
+		return;
+	}
+	_updateTelegram->setProgress(percent);
+	_updateTelegram->setText(ParadoksUpdateText(
+		Paradoks::Update::AvailableBuild(),
+		percent));
+}
+
 void Widget::checkParadoksUpdate(int build) {
 	if (_layout == Layout::Child) {
 		return;
@@ -2681,14 +2784,17 @@ void Widget::checkParadoksUpdate(int build) {
 		}
 		_updateTelegram.create(
 			this,
-			u"ParadoksGram yangilanishi: build-%1"_q.arg(build),
+			ParadoksUpdateText(build, Paradoks::Update::Progress()),
 			st::dialogsUpdateButton,
 			st::dialogsInstallUpdate,
 			st::dialogsInstallUpdateOver,
 			true);
 		_updateTelegram->show();
+		_updateTelegram->setProgress(Paradoks::Update::Progress());
 		_updateTelegram->setClickedCallback([=] {
-			Paradoks::Update::ShowBox(controller());
+			if (Paradoks::Update::Progress() < 0) {
+				Paradoks::Update::Start();
+			}
 		});
 		if (_connecting) {
 			_connecting->raise();
