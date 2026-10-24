@@ -135,6 +135,127 @@ void PrepareProfileVideo(
 		std::move(applyModifications));
 }
 
+void PrepareStoryVideo(
+		not_null<QWidget*> parent,
+		not_null<Window::Controller*> controller,
+		const QString &path,
+		Fn<void(StoryMedia&&)> &&doneCallback) {
+	const auto info = Media::Video::ReadFileInfo(path);
+	if (!info.valid() || !AcceptableDimensions(info.dimensions)) {
+		controller->show(Ui::MakeInformBox(tr::lng_bad_video()));
+		return;
+	}
+	auto editorData = VideoEditorData{
+		.editor = EditorData{
+			.confirm = u"Keyingi"_q,
+			.keepAspectRatio = true,
+		},
+		.hint = u"Story uchun kadrni va qismni tanlang (60 soniyagacha)"_q,
+		.exactSize = QSize(kStoryWidth, kStoryHeight),
+		.maxDuration = kStoryMaxDuration,
+		.minDuration = kStoryMinDuration,
+		.fpsLimit = kStoryFps,
+		.removeAudio = false,
+		.transcodeAlways = true,
+	};
+
+	auto applyModifications = [=, done = std::move(doneCallback)](
+			VideoModifications mods) mutable {
+		crl::async([
+			=,
+			ready = crl::guard(parent, [=](QImage &&preview) mutable {
+				if (preview.isNull()) {
+					controller->show(Ui::MakeInformBox(tr::lng_bad_video()));
+					return;
+				}
+				done({
+					.image = std::move(preview),
+					.video = std::make_shared<Media::Encode::VideoSource>(
+						ComposeVideoSource(path, mods, editorData, true)),
+				});
+			})
+		]() mutable {
+			auto preview = ExtractCoverImage(
+				path,
+				QByteArray(),
+				mods,
+				info.dimensions,
+				kStoryWidth);
+			if (!preview.isNull()) {
+				preview = preview.scaled(
+					kStoryWidth,
+					kStoryHeight,
+					Qt::KeepAspectRatio,
+					Qt::SmoothTransformation);
+			}
+			crl::on_main([
+				ready = std::move(ready),
+				preview = std::move(preview)
+			]() mutable {
+				ready(std::move(preview));
+			});
+		});
+	};
+
+	ShowVideoEditorLayer(
+		parent,
+		controller,
+		VideoEditorDescriptor{
+			.path = path,
+			.dimensions = info.dimensions,
+			.duration = info.duration,
+			.data = editorData,
+		},
+		std::move(applyModifications));
+}
+
+void PrepareStoryMediaFromFile(
+		not_null<QWidget*> parent,
+		not_null<Window::Controller*> controller,
+		Fn<void(StoryMedia&&)> &&doneCallback) {
+	const auto callback = [=, done = std::move(doneCallback)](
+			const FileDialog::OpenResult &result) mutable {
+		if (result.paths.isEmpty() && result.remoteContent.isEmpty()) {
+			return;
+		}
+		const auto path = result.paths.isEmpty()
+			? QString()
+			: result.paths.front();
+
+		auto image = Images::Read({
+			.path = path,
+			.content = result.remoteContent,
+			.forceOpaque = true,
+		}).image;
+		if (!image.isNull()) {
+			auto photoDone = [done](QImage &&image) mutable {
+				done({ .image = std::move(image) });
+			};
+			PrepareStoryPhoto(
+				parent,
+				controller,
+				std::move(photoDone),
+				std::move(image));
+			return;
+		}
+		const auto byExtension = ranges::any_of(
+			Ui::ImageExtensions(),
+			[&](const QString &extension) {
+				return path.endsWith(extension, Qt::CaseInsensitive);
+			});
+		if (path.isEmpty() || byExtension) {
+			controller->show(Ui::MakeInformBox(tr::lng_bad_photo()));
+			return;
+		}
+		PrepareStoryVideo(parent, controller, path, std::move(done));
+	};
+	FileDialog::GetOpenPath(
+		parent.get(),
+		tr::lng_choose_image(tr::now),
+		FileDialog::PhotoVideoFilesFilter(),
+		crl::guard(parent, callback));
+}
+
 void PrepareProfileMediaFromFile(
 		not_null<QWidget*> parent,
 		not_null<Window::Controller*> controller,

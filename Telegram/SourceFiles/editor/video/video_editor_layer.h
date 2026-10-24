@@ -35,6 +35,18 @@ struct ProfileMedia {
 	std::shared_ptr<Media::Encode::VideoSource> video;
 };
 
+inline constexpr auto kStoryWidth = 720;
+inline constexpr auto kStoryHeight = 1280;
+inline constexpr auto kStoryMaxDuration = crl::time(60 * 1000);
+inline constexpr auto kStoryMinDuration = crl::time(500);
+inline constexpr auto kStoryFps = 30.;
+
+// A story picture, or a video (then image is its preview frame).
+struct StoryMedia {
+	QImage image;
+	std::shared_ptr<Media::Encode::VideoSource> video;
+};
+
 [[nodiscard]] VideoEditorData ProfileVideoEditorData(EditorData data);
 
 void ShowVideoEditorLayer(
@@ -49,6 +61,17 @@ void PrepareProfileVideo(
 	EditorData data,
 	const QString &path,
 	Fn<void(ProfileMedia&&)> &&doneCallback);
+
+void PrepareStoryVideo(
+	not_null<QWidget*> parent,
+	not_null<Window::Controller*> controller,
+	const QString &path,
+	Fn<void(StoryMedia&&)> &&doneCallback);
+
+void PrepareStoryMediaFromFile(
+	not_null<QWidget*> parent,
+	not_null<Window::Controller*> controller,
+	Fn<void(StoryMedia&&)> &&doneCallback);
 
 void PrepareProfileMediaFromFile(
 	not_null<QWidget*> parent,

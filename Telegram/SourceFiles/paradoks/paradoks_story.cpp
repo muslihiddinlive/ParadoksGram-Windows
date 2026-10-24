@@ -16,6 +16,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "data/data_user.h"
 #include "editor/photo_editor_layer_widget.h"
+#include "editor/video/video_editor_layer.h"
+#include "media/media_video_encode.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "mainwidget.h"
@@ -35,6 +37,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_widgets.h"
 
 #include <QtCore/QBuffer>
+#include <QtCore/QFile>
 
 namespace Paradoks::Story {
 namespace {
@@ -137,17 +140,63 @@ struct Upload {
 	bool done = false;
 };
 
-void SendStory(
-		not_null<Window::SessionController*> controller,
-		QImage image,
-		const Options &options) {
-	const auto session = &controller->session();
+using Toast = Fn<void(const QString &)>;
+
+[[nodiscard]] Toast MakeToast(
+		not_null<Window::SessionController*> controller) {
 	const auto weak = base::make_weak(controller);
-	const auto toast = [=](const QString &text) {
+	return [=](const QString &text) {
 		if (const auto strong = weak.get()) {
 			strong->showToast(text);
 		}
 	};
+}
+
+// Sends stories.sendStory once the media is uploaded.
+void PostStory(
+		not_null<Main::Session*> session,
+		const MTPInputMedia &media,
+		const Options &options,
+		const Toast &toast) {
+	auto flags = MTPstories_SendStory::Flags(0);
+	if (!options.caption.isEmpty()) {
+		flags |= MTPstories_SendStory::Flag::f_caption;
+	}
+	flags |= MTPstories_SendStory::Flag::f_period;
+	if (options.noForwards) {
+		flags |= MTPstories_SendStory::Flag::f_noforwards;
+	}
+	if (options.pinned) {
+		flags |= MTPstories_SendStory::Flag::f_pinned;
+	}
+	session->api().request(MTPstories_SendStory(
+		MTP_flags(flags),
+		session->user()->input(),
+		media,
+		MTPVector<MTPMediaArea>(),
+		MTP_string(options.caption),
+		MTPVector<MTPMessageEntity>(),
+		PrivacyRules(options.privacy),
+		MTP_long(base::RandomValue<uint64>()),
+		MTP_int(options.period),
+		MTPInputPeer(),
+		MTPint(),
+		MTPVector<MTPint>(),
+		MTPInputDocument()
+	)).done([=](const MTPUpdates &result) {
+		session->api().applyUpdates(result);
+		toast(u"Story qo'yildi"_q);
+	}).fail([=](const MTP::Error &error) {
+		toast(u"Story qo'yib bo'lmadi: "_q + error.type());
+	}).send();
+}
+
+void SendPhoto(
+		not_null<Window::SessionController*> controller,
+		QImage image,
+		const Options &options) {
+	const auto session = &controller->session();
+	const auto toast = MakeToast(controller);
 
 	const auto self = session->user();
 	const auto fakeId = FullMsgId(
@@ -171,44 +220,16 @@ void SendStory(
 		return !state->done && (data.fullId == fakeId);
 	}) | rpl::on_next([=](const Storage::UploadedMedia &data) {
 		finish();
-
-		auto flags = MTPstories_SendStory::Flags(0);
-		if (!options.caption.isEmpty()) {
-			flags |= MTPstories_SendStory::Flag::f_caption;
-		}
-		flags |= MTPstories_SendStory::Flag::f_period;
-		if (options.noForwards) {
-			flags |= MTPstories_SendStory::Flag::f_noforwards;
-		}
-		if (options.pinned) {
-			flags |= MTPstories_SendStory::Flag::f_pinned;
-		}
-		const auto media = MTP_inputMediaUploadedPhoto(
-			MTP_flags(0),
-			data.info.file,
-			MTP_vector<MTPInputDocument>(QVector<MTPInputDocument>()),
-			MTPint(),
-			MTPInputDocument());
-		session->api().request(MTPstories_SendStory(
-			MTP_flags(flags),
-			session->user()->input(),
-			media,
-			MTPVector<MTPMediaArea>(),
-			MTP_string(options.caption),
-			MTPVector<MTPMessageEntity>(),
-			PrivacyRules(options.privacy),
-			MTP_long(base::RandomValue<uint64>()),
-			MTP_int(options.period),
-			MTPInputPeer(),
-			MTPint(),
-			MTPVector<MTPint>(),
-			MTPInputDocument()
-		)).done([=](const MTPUpdates &result) {
-			session->api().applyUpdates(result);
-			toast(u"Story qo'yildi"_q);
-		}).fail([=](const MTP::Error &error) {
-			toast(u"Story qo'yib bo'lmadi: "_q + error.type());
-		}).send();
+		PostStory(
+			session,
+			MTP_inputMediaUploadedPhoto(
+				MTP_flags(0),
+				data.info.file,
+				MTP_vector<MTPInputDocument>(QVector<MTPInputDocument>()),
+				MTPint(),
+				MTPInputDocument()),
+			options,
+			toast);
 	}, state->lifetime);
 
 	session->uploader().photoFailed(
@@ -223,11 +244,161 @@ void SendStory(
 	session->uploader().upload(fakeId, prepared);
 }
 
+void UploadVideo(
+		not_null<Window::SessionController*> controller,
+		Media::Encode::TranscodeResult &&result,
+		const Options &options) {
+	const auto session = &controller->session();
+	const auto toast = MakeToast(controller);
+
+	auto bytes = QByteArray();
+	{
+		auto file = QFile(result.path);
+		if (file.open(QIODevice::ReadOnly)) {
+			bytes = file.readAll();
+		}
+	}
+	QFile::remove(result.path);
+	if (bytes.isEmpty()) {
+		toast(u"Videoni tayyorlab bo'lmadi."_q);
+		return;
+	}
+
+	const auto thumb = result.cover.isNull()
+		? QImage()
+		: result.cover.scaled(
+			320,
+			320,
+			Qt::KeepAspectRatio,
+			Qt::SmoothTransformation);
+	auto thumbBytes = QByteArray();
+	if (!thumb.isNull()) {
+		auto buffer = QBuffer(&thumbBytes);
+		buffer.open(QIODevice::WriteOnly);
+		thumb.save(&buffer, "JPG", 87);
+	}
+
+	const auto id = base::RandomValue<uint64>();
+	const auto fakeId = FullMsgId(
+		session->user()->id,
+		session->data().nextLocalMessageId());
+	const auto width = result.dimensions.width();
+	const auto height = result.dimensions.height();
+	const auto seconds = result.duration / 1000.;
+
+	using VideoFlag = MTPDdocumentAttributeVideo::Flag;
+	auto attributes = QVector<MTPDocumentAttribute>();
+	attributes.push_back(MTP_documentAttributeVideo(
+		MTP_flags(VideoFlag::f_supports_streaming),
+		MTP_double(seconds),
+		MTP_int(width),
+		MTP_int(height),
+		MTPint(),
+		MTPdouble(),
+		MTPstring()));
+
+	auto prepared = MakePreparedFile({
+		.id = id,
+		.type = SendMediaType::File,
+	});
+	prepared->filename = u"story.mp4"_q;
+	prepared->filemime = u"video/mp4"_q;
+	prepared->filesize = int64(bytes.size());
+	prepared->setFileData(bytes);
+	if (!thumbBytes.isEmpty()) {
+		prepared->thumbId = base::RandomValue<uint64>();
+		prepared->thumbname = "thumb.jpg";
+		prepared->thumb = thumb;
+		prepared->setThumbData(thumbBytes);
+	}
+	auto thumbs = QVector<MTPPhotoSize>();
+	if (!thumb.isNull()) {
+		thumbs.push_back(MTP_photoSize(
+			MTP_string("m"),
+			MTP_int(thumb.width()),
+			MTP_int(thumb.height()),
+			MTP_int(0)));
+	}
+	prepared->document = MTP_document(
+		MTP_flags(0),
+		MTP_long(id),
+		MTP_long(0),
+		MTP_bytes(),
+		MTP_int(base::unixtime::now()),
+		MTP_string("video/mp4"),
+		MTP_long(bytes.size()),
+		MTP_vector<MTPPhotoSize>(thumbs),
+		MTPVector<MTPVideoSize>(),
+		MTP_int(session->mtp().mainDcId()),
+		MTP_vector<MTPDocumentAttribute>(attributes));
+
+	const auto state = std::make_shared<Upload>();
+	const auto finish = [=] {
+		state->done = true;
+		crl::on_main([=] {
+			state->lifetime.destroy();
+		});
+	};
+
+	session->uploader().documentReady(
+	) | rpl::filter([=](const Storage::UploadedMedia &data) {
+		return !state->done && (data.fullId == fakeId);
+	}) | rpl::on_next([=](const Storage::UploadedMedia &data) {
+		finish();
+		using Flag = MTPDinputMediaUploadedDocument::Flag;
+		PostStory(
+			session,
+			MTP_inputMediaUploadedDocument(
+				MTP_flags(data.info.thumb ? Flag::f_thumb : Flag()),
+				data.info.file,
+				data.info.thumb.value_or(MTPInputFile()),
+				MTP_string("video/mp4"),
+				MTP_vector<MTPDocumentAttribute>(attributes),
+				MTP_vector<MTPInputDocument>(QVector<MTPInputDocument>()),
+				MTPInputPhoto(),
+				MTP_int(0),
+				MTP_int(0)),
+			options,
+			toast);
+	}, state->lifetime);
+
+	session->uploader().documentFailed(
+	) | rpl::filter([=](const FullMsgId &failedId) {
+		return !state->done && (failedId == fakeId);
+	}) | rpl::on_next([=](const FullMsgId &) {
+		finish();
+		toast(u"Videoni yuklab bo'lmadi."_q);
+	}, state->lifetime);
+
+	toast(u"Story yuklanmoqda..."_q);
+	session->uploader().upload(fakeId, prepared);
+}
+
+void SendVideo(
+		not_null<Window::SessionController*> controller,
+		std::shared_ptr<Media::Encode::VideoSource> source,
+		const Options &options) {
+	const auto toast = MakeToast(controller);
+	const auto weak = base::make_weak(controller);
+	toast(u"Video tayyorlanmoqda... (bir necha daqiqa olishi mumkin)"_q);
+	crl::async([=] {
+		auto result = Media::Encode::TranscodeVideo(*source, nullptr);
+		crl::on_main(weak, [=, result = std::move(result)]() mutable {
+			if (result.empty()) {
+				toast(u"Videoni tayyorlab bo'lmadi."_q);
+				return;
+			}
+			UploadVideo(weak.get(), std::move(result), options);
+		});
+	});
+}
+
 void OptionsBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller,
-		QImage image) {
+		Editor::StoryMedia media) {
 	box->setTitle(rpl::single(u"Yangi story"_q));
+	const auto image = media.image;
 	const auto container = box->verticalLayout();
 
 	// Preview of the picture.
@@ -321,7 +492,11 @@ void OptionsBox(
 			.pinned = pinned->checked(),
 		};
 		box->closeBox();
-		SendStory(controller, image, options);
+		if (media.video) {
+			SendVideo(controller, media.video, options);
+		} else {
+			SendPhoto(controller, media.image, options);
+		}
 	});
 	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 }
@@ -329,11 +504,11 @@ void OptionsBox(
 } // namespace
 
 void Start(not_null<Window::SessionController*> controller) {
-	Editor::PrepareStoryPhotoFromFile(
+	Editor::PrepareStoryMediaFromFile(
 		controller->content(),
 		&controller->window(),
-		[=](QImage &&image) {
-			controller->show(Box(OptionsBox, controller, std::move(image)));
+		[=](Editor::StoryMedia &&media) {
+			controller->show(Box(OptionsBox, controller, std::move(media)));
 		});
 }
 
