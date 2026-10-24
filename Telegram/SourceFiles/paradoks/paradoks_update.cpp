@@ -217,26 +217,32 @@ void SetProgress(int percent) {
 	Data().progress = percent;
 }
 
-[[nodiscard]] QString QuoteBatch(const QString &path) {
-	return u"\""_q + QDir::toNativeSeparators(path) + u"\""_q;
+[[nodiscard]] QString QuoteArg(const QString &text) {
+	return u"\""_q + QDir::toNativeSeparators(text) + u"\""_q;
 }
 
+// Hidden PowerShell (CREATE_NO_WINDOW, but not DETACHED_PROCESS, so no
+// console windows pop up) waits for this process and swaps the exe.
 bool LaunchApplyScript(
 		const QString &script,
 		const QString &source,
 		const QString &target,
 		const QString &log) {
 #ifdef Q_OS_WIN
-	const auto command = u"cmd.exe /d /c \"%1 %2 %3 %4 %5\""_q.arg(
-		QuoteBatch(script),
-		QString::number(QCoreApplication::applicationPid()),
-		QuoteBatch(source),
-		QuoteBatch(target),
-		QuoteBatch(log));
+	const auto command = u"powershell.exe -NoProfile -NonInteractive "
+		"-ExecutionPolicy Bypass -WindowStyle Hidden -File %1 "
+		"-ProcId %2 -Src %3 -Dst %4 -Log %5"_q.arg(
+			QuoteArg(script),
+			QString::number(QCoreApplication::applicationPid()),
+			QuoteArg(source),
+			QuoteArg(target),
+			QuoteArg(log));
 	auto buffer = command.toStdWString();
 	buffer.push_back(L'\0');
 	auto startup = STARTUPINFOW();
 	startup.cb = sizeof(startup);
+	startup.dwFlags = STARTF_USESHOWWINDOW;
+	startup.wShowWindow = SW_HIDE;
 	auto info = PROCESS_INFORMATION();
 	const auto ok = CreateProcessW(
 		nullptr,
@@ -244,7 +250,7 @@ bool LaunchApplyScript(
 		nullptr,
 		nullptr,
 		FALSE,
-		CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+		CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
 		nullptr,
 		nullptr,
 		&startup,
@@ -279,7 +285,7 @@ void Apply(const std::shared_ptr<Job> &job) {
 		return;
 	}
 
-	const auto script = job->dir + u"/apply.cmd"_q;
+	const auto script = job->dir + u"/apply.ps1"_q;
 	const auto log = job->dir + u"/apply.log"_q;
 	auto file = QFile(script);
 	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -287,41 +293,27 @@ void Apply(const std::shared_ptr<Job> &job) {
 		return;
 	}
 	const auto lines = QStringList{
-		u"@echo off"_q,
-		u"set PID=%~1"_q,
-		u"set SRC=%~2"_q,
-		u"set DST=%~3"_q,
-		u"set LOG=%~4"_q,
-		u"set /a n=0"_q,
-		u"set /a k=0"_q,
-		u"echo start> \"%LOG%\""_q,
-		u":wait"_q,
-		u"tasklist /FI \"PID eq %PID%\" /NH 2>nul | find \"%PID%\" >nul"_q,
-		u"if errorlevel 1 goto copy"_q,
-		u"set /a n+=1"_q,
-		u"if %n% GEQ 300 goto giveup"_q,
-		u"ping -n 2 127.0.0.1 >nul"_q,
-		u"goto wait"_q,
-		u":copy"_q,
-		u"copy /Y \"%SRC%\" \"%DST%\" >> \"%LOG%\" 2>&1"_q,
-		u"if not errorlevel 1 goto done"_q,
-		u"set /a k+=1"_q,
-		u"if %k% GEQ 30 goto fail"_q,
-		u"ping -n 2 127.0.0.1 >nul"_q,
-		u"goto copy"_q,
-		u":done"_q,
-		u"echo done>> \"%LOG%\""_q,
-		u"start \"\" \"%DST%\""_q,
-		u"exit /b 0"_q,
-		u":fail"_q,
-		u"echo copy failed>> \"%LOG%\""_q,
-		u"start \"\" \"%DST%\""_q,
-		u"exit /b 1"_q,
-		u":giveup"_q,
-		u"echo old app still running>> \"%LOG%\""_q,
-		u"exit /b 2"_q,
+		u"param([int]$ProcId, [string]$Src, [string]$Dst, [string]$Log)"_q,
+		u"function L([string]$m) {"_q,
+		u"  try { Add-Content -LiteralPath $Log -Value ((Get-Date -Format s) + ' ' + $m) } catch {}"_q,
+		u"}"_q,
+		u"L 'start'"_q,
+		u"try { Wait-Process -Id $ProcId -Timeout 300 -ErrorAction SilentlyContinue } catch { L ('wait: ' + $_.Exception.Message) }"_q,
+		u"Start-Sleep -Milliseconds 500"_q,
+		u"$ok = $false"_q,
+		u"for ($i = 0; $i -lt 60 -and -not $ok; $i++) {"_q,
+		u"  try {"_q,
+		u"    Copy-Item -LiteralPath $Src -Destination $Dst -Force -ErrorAction Stop"_q,
+		u"    $ok = $true"_q,
+		u"  } catch {"_q,
+		u"    L ('copy failed: ' + $_.Exception.Message)"_q,
+		u"    Start-Sleep -Milliseconds 750"_q,
+		u"  }"_q,
+		u"}"_q,
+		u"if ($ok) { L 'done' } else { L 'gave up' }"_q,
+		u"try { Start-Process -FilePath $Dst } catch { L ('start failed: ' + $_.Exception.Message) }"_q,
 	};
-	file.write(lines.join(u"\r\n"_q).toLocal8Bit() + "\r\n");
+	file.write(lines.join(u"\r\n"_q).toUtf8() + "\r\n");
 	file.close();
 
 	const auto target = QCoreApplication::applicationFilePath();
@@ -348,6 +340,37 @@ void Download(const std::shared_ptr<Job> &job, const Source &source);
 		return false;
 	}
 	return QString::fromLatin1(hash.result().toHex()) == sha;
+}
+
+[[nodiscard]] QString ReadyMarkerPath(const QString &dir) {
+	return dir + u"/ready.txt"_q;
+}
+
+// The extracted exe stays in the temp folder, so if installing fails the
+// next attempt does not download everything again.
+void WriteReady(const std::shared_ptr<Job> &job) {
+	auto file = QFile(ReadyMarkerPath(job->dir));
+	if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		file.write(QByteArray::number(job->info.build));
+	}
+}
+
+[[nodiscard]] int ReadyBuild(const QString &dir) {
+	auto file = QFile(ReadyMarkerPath(dir));
+	if (!file.open(QIODevice::ReadOnly)) {
+		return 0;
+	}
+	return file.readAll().trimmed().toInt();
+}
+
+[[nodiscard]] bool PreparedReady(const QString &dir, int build) {
+	return (build > 0)
+		&& (ReadyBuild(dir) == build)
+		&& (QFileInfo(dir + u"/out/Telegram.exe"_q).size() >= kMinExeSize);
+}
+
+[[nodiscard]] QString UpdateDir() {
+	return QDir::tempPath() + u"/ParadoksGram-update"_q;
 }
 
 void Extract(const std::shared_ptr<Job> &job) {
@@ -399,6 +422,7 @@ void Extract(const std::shared_ptr<Job> &job) {
 				}
 				return;
 			}
+			WriteReady(job);
 			Apply(job);
 		});
 	QObject::connect(
@@ -623,7 +647,7 @@ void Download(const std::shared_ptr<Job> &job, const Source &source) {
 		job->file = nullptr;
 	}
 	job->source = source;
-	job->dir = QDir::tempPath() + u"/ParadoksGram-update"_q;
+	job->dir = UpdateDir();
 	QDir(job->dir).removeRecursively();
 	QDir().mkpath(job->dir);
 	job->archive = job->dir
@@ -689,6 +713,12 @@ void Start() {
 			+ u"\nQo'lda yuklash: github.com/muslihiddinlive/"
 			"ParadoksGram-Windows/releases"_q);
 	};
+	job->dir = UpdateDir();
+	if (PreparedReady(job->dir, job->info.build)) {
+		SetProgress(101);
+		Apply(job);
+		return;
+	}
 	const auto useSevenZip = !job->info.sevenZip.url.isEmpty()
 		&& !SevenZipBroken();
 	Download(job, useSevenZip ? job->info.sevenZip : job->info.zip);
@@ -728,6 +758,12 @@ void CheckOnStart() {
 		return;
 	}
 	state.started = true;
+	// Leftovers of an update that was installed successfully.
+	const auto leftover = UpdateDir();
+	const auto readyBuild = ReadyBuild(leftover);
+	if (readyBuild > 0 && readyBuild <= CurrentBuild()) {
+		QDir(leftover).removeRecursively();
+	}
 	// The "new version" button at the bottom of the chats list reacts to
 	// the result; check shortly after start and then every few hours.
 	QTimer::singleShot(15 * 1000, [] {
