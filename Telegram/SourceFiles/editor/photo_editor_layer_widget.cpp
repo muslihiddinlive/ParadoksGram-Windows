@@ -148,6 +148,77 @@ void PrepareProfilePhoto(
 	controller->showLayer(std::move(layer), Ui::LayerOption::KeepOther);
 }
 
+void PrepareStoryPhoto(
+		not_null<QWidget*> parent,
+		not_null<Window::Controller*> controller,
+		Fn<void(QImage &&image)> &&doneCallback,
+		QImage &&image) {
+	if (image.isNull()
+		|| (image.width() < 100)
+		|| (image.height() < 100)
+		|| (image.width() > (10 * image.height()))
+		|| (image.height() > (10 * image.width()))) {
+		controller->show(Ui::MakeInformBox(tr::lng_bad_photo()));
+		return;
+	}
+	const auto fileImage = std::make_shared<Image>(std::move(image));
+
+	auto applyModifications = [=, done = std::move(doneCallback)](
+			const PhotoModifications &mods) {
+		done(ImageModified(fileImage->original(), mods));
+	};
+
+	auto crop = [&] {
+		const auto &i = fileImage;
+		auto width = i->width();
+		auto height = i->height();
+		if (width * 16 > height * 9) {
+			width = height * 9 / 16;
+		} else {
+			height = width * 16 / 9;
+		}
+		return QRect(
+			(i->width() - width) / 2,
+			(i->height() - height) / 2,
+			width,
+			height);
+	}();
+
+	auto editor = base::make_unique_q<PhotoEditor>(
+		parent,
+		controller,
+		fileImage,
+		PhotoModifications{ .crop = std::move(crop) },
+		EditorData{ .confirm = u"Keyingi"_q });
+	const auto raw = editor.get();
+	auto layer = std::make_unique<LayerWidget>(parent, std::move(editor));
+	InitEditorLayer(layer.get(), raw, std::move(applyModifications));
+	controller->showLayer(std::move(layer), Ui::LayerOption::KeepOther);
+}
+
+void PrepareStoryPhotoFromFile(
+		not_null<QWidget*> parent,
+		not_null<Window::Controller*> controller,
+		Fn<void(QImage &&image)> &&doneCallback) {
+	const auto callback = [=, done = std::move(doneCallback)](
+			const FileDialog::OpenResult &result) mutable {
+		if (result.paths.isEmpty() && result.remoteContent.isEmpty()) {
+			return;
+		}
+		auto image = Images::Read({
+			.path = result.paths.isEmpty() ? QString() : result.paths.front(),
+			.content = result.remoteContent,
+			.forceOpaque = true,
+		}).image;
+		PrepareStoryPhoto(parent, controller, std::move(done), std::move(image));
+	};
+	FileDialog::GetOpenPath(
+		parent.get(),
+		tr::lng_choose_image(tr::now),
+		FileDialog::ImagesOrAllFilter(),
+		crl::guard(parent, callback));
+}
+
 void PrepareProfilePhotoFromFile(
 		not_null<QWidget*> parent,
 		not_null<Window::Controller*> controller,

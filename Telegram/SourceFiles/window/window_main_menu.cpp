@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_privacy.h"
+#include "paradoks/paradoks_story.h"
 
 #include "apiwrap.h"
 #include "base/event_filter.h"
@@ -680,6 +681,16 @@ void MainMenu::setupMenu() {
 		)->setClickedCallback([=] {
 			controller->showSection(
 				Info::Stories::MakeMyProfile(controller->session().user()));
+		});
+
+		_menu->add(
+			CreateButtonWithIcon(
+				_menu,
+				rpl::single(u"Story qo'yish"_q),
+				st::mainMenuButton,
+				{ &st::menuIconPhotoSet })
+		)->setClickedCallback([=] {
+			Paradoks::Story::Start(controller);
 		});
 
 		SetupMenuBots(_menu, controller);

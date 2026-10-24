@@ -47,6 +47,18 @@ void PrepareProfilePhoto(
 	Fn<void(QImage &&image)> &&doneCallback,
 	QImage &&image);
 
+// Story photo: free crop (starting with 9:16), draw, text, stickers.
+void PrepareStoryPhoto(
+	not_null<QWidget*> parent,
+	not_null<Window::Controller*> controller,
+	Fn<void(QImage &&image)> &&doneCallback,
+	QImage &&image);
+
+void PrepareStoryPhotoFromFile(
+	not_null<QWidget*> parent,
+	not_null<Window::Controller*> controller,
+	Fn<void(QImage &&image)> &&doneCallback);
+
 void PrepareProfilePhotoFromFile(
 	not_null<QWidget*> parent,
 	not_null<Window::Controller*> controller,

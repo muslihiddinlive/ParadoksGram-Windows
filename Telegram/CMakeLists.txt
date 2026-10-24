@@ -1713,6 +1713,8 @@ PRIVATE
     paradoks/paradoks_hotkey.h
     paradoks/paradoks_privacy.cpp
     paradoks/paradoks_privacy.h
+    paradoks/paradoks_story.cpp
+    paradoks/paradoks_story.h
     paradoks/paradoks_store.cpp
     paradoks/paradoks_store.h
     paradoks/paradoks_ui.cpp
