@@ -25,6 +25,12 @@ void SettingsBox(
 	not_null<Ui::GenericBox*> box,
 	not_null<Window::SessionController*> controller);
 
+// Copies the ID of a sticker / GIF / custom emoji of the message.
+void AddIdActions(
+	not_null<Ui::PopupMenu*> menu,
+	std::shared_ptr<Ui::Show> show,
+	not_null<HistoryItem*> item);
+
 void AddEditHistoryAction(
 	not_null<Ui::PopupMenu*> menu,
 	std::shared_ptr<Ui::Show> show,

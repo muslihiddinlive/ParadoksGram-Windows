@@ -8,9 +8,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_store.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_media.h"
 #include "base/unixtime.h"
 #include "data/data_document.h"
 #include "data/data_media_types.h"
+#include "data/data_photo.h"
+#include "data/data_photo_media.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
 #include "history/history.h"
@@ -21,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QDir>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
+#include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 
@@ -31,7 +35,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Paradoks {
 namespace {
 
-constexpr auto kMaxMediaSize = int64(150) * 1024 * 1024;
+constexpr auto kMaxEditMediaSize = int64(100) * 1024 * 1024;
 
 using Key = std::pair<uint64, int64>;
 
@@ -54,6 +58,64 @@ struct State {
 
 [[nodiscard]] Key KeyFor(not_null<const HistoryItem*> item) {
 	return { item->history()->peer->id.value, item->id.bare };
+}
+
+[[nodiscard]] QString MediaKey(not_null<const HistoryItem*> item) {
+	const auto media = item->media();
+	if (!media) {
+		return QString();
+	} else if (const auto document = media->document()) {
+		return u"d"_q + QString::number(document->id);
+	} else if (const auto photo = media->photo()) {
+		return u"p"_q + QString::number(photo->id);
+	}
+	return u"o"_q;
+}
+
+[[nodiscard]] bool SameEntities(
+		const EntitiesInText &a,
+		const EntitiesInText &b) {
+	if (a.size() != b.size()) {
+		return false;
+	}
+	for (auto i = 0; i != a.size(); ++i) {
+		if (a[i].type() != b[i].type()
+			|| a[i].offset() != b[i].offset()
+			|| a[i].length() != b[i].length()
+			|| a[i].data() != b[i].data()) {
+			return false;
+		}
+	}
+	return true;
+}
+
+// Private copy of the photo / file that was replaced by an edit.
+[[nodiscard]] QString KeepReplacedMedia(
+		Key key,
+		TimeId date,
+		const QString &path,
+		const std::shared_ptr<Data::PhotoMedia> &photo) {
+	const auto folder = cWorkingDir() + u"tdata/paradoks_media/edits/"_q;
+	const auto prefix = QString::number(key.first)
+		+ '_'
+		+ QString::number(key.second)
+		+ '_'
+		+ QString::number(date)
+		+ '_';
+	if (!path.isEmpty()) {
+		const auto info = QFileInfo(path);
+		if (!info.exists() || info.size() > kMaxEditMediaSize) {
+			return QString();
+		}
+		QDir().mkpath(folder);
+		const auto name = prefix + info.fileName();
+		return QFile::copy(path, folder + name) ? (folder + name) : QString();
+	} else if (photo && photo->loaded()) {
+		QDir().mkpath(folder);
+		const auto name = prefix + u"photo.jpg"_q;
+		return photo->saveToFile(folder + name) ? (folder + name) : QString();
+	}
+	return QString();
 }
 
 [[nodiscard]] State &Load() {
@@ -82,11 +144,25 @@ struct State {
 					.deletedAt = TimeId(object.value(u"x"_q).toInt()),
 					.from = object.value(u"f"_q).toString(),
 					.text = object.value(u"t"_q).toString(),
+					.chat = object.value(u"c"_q).toString(),
+					.hasMedia = object.value(u"m"_q).toBool(),
 				});
 			} else if (kind == u"e"_q) {
+				auto entities = EntitiesInText();
+				const auto list = object.value(u"n"_q).toArray();
+				for (const auto &value : list) {
+					const auto entity = value.toObject();
+					entities.push_back(EntityInText(
+						EntityType(entity.value(u"t"_q).toInt()),
+						entity.value(u"o"_q).toInt(),
+						entity.value(u"l"_q).toInt(),
+						entity.value(u"d"_q).toString()));
+				}
 				result.edits[key].push_back({
 					.date = TimeId(object.value(u"d"_q).toInt()),
 					.text = object.value(u"t"_q).toString(),
+					.entities = std::move(entities),
+					.media = object.value(u"m"_q).toString(),
 				});
 				result.editMeta[key] = {
 					.changedAt = TimeId(object.value(u"x"_q).toInt()),
@@ -109,29 +185,6 @@ void Append(const QJsonObject &object) {
 	file.write("\n");
 }
 
-void SaveMedia(not_null<HistoryItem*> item) {
-	if (!Enabled(Flag::KeepDeletedMedia)) {
-		return;
-	}
-	const auto media = item->media();
-	const auto document = media ? media->document() : nullptr;
-	if (!document) {
-		return;
-	}
-	const auto path = document->filepath(true);
-	if (path.isEmpty() || QFileInfo(path).size() > kMaxMediaSize) {
-		return;
-	}
-	const auto folder = cWorkingDir() + u"tdata/paradoks_media/"_q;
-	QDir().mkpath(folder);
-	const auto name = QString::number(item->history()->peer->id.value)
-		+ '_'
-		+ QString::number(item->id.bare)
-		+ '_'
-		+ QFileInfo(path).fileName();
-	QFile::copy(path, folder + name);
-}
-
 } // namespace
 
 bool KeepDeleted(not_null<HistoryItem*> item) {
@@ -152,6 +205,8 @@ bool KeepDeleted(not_null<HistoryItem*> item) {
 		.deletedAt = base::unixtime::now(),
 		.from = item->from()->name(),
 		.text = item->originalText().text,
+		.chat = item->history()->peer->name(),
+		.hasMedia = (item->media() != nullptr),
 	};
 	state.deleted.push_back(entry);
 	auto object = QJsonObject();
@@ -162,8 +217,11 @@ bool KeepDeleted(not_null<HistoryItem*> item) {
 	object.insert(u"x"_q, int(entry.deletedAt));
 	object.insert(u"f"_q, entry.from);
 	object.insert(u"t"_q, entry.text);
+	object.insert(u"c"_q, entry.chat);
+	object.insert(u"m"_q, entry.hasMedia);
 	Append(object);
-	SaveMedia(item);
+	KeepMediaFor(item);
+	NotifyDeleted(item);
 	item->history()->owner().requestItemViewRefresh(item);
 	return true;
 }
@@ -178,16 +236,49 @@ std::vector<DeletedEntry> DeletedList() {
 	return Load().deleted;
 }
 
-void LogEdit(not_null<HistoryItem*> item, const QString &oldText) {
+EditSnapshot BeginEdit(not_null<HistoryItem*> item) {
+	const auto edited = item->Get<HistoryMessageEdited>();
+	auto result = EditSnapshot{
+		.text = item->originalText(),
+		.mediaKey = MediaKey(item),
+		.date = (edited && edited->date) ? edited->date : item->date(),
+	};
+	if (Enabled(Flag::TrackEdits) && item->media()) {
+		if (const auto document = item->media()->document()) {
+			result.mediaPath = document->filepath(true);
+		} else if (const auto photo = item->media()->photo()) {
+			result.photo = photo->activeMediaView();
+		}
+	}
+	return result;
+}
+
+void FinishEdit(not_null<HistoryItem*> item, EditSnapshot &&before) {
 	if (!Enabled(Flag::TrackEdits)) {
 		return;
 	}
-	const auto edited = item->Get<HistoryMessageEdited>();
-	const auto date = (edited && edited->date) ? edited->date : item->date();
+	const auto &now = item->originalText();
+	const auto textChanged = (before.text.text != now.text)
+		|| !SameEntities(before.text.entities, now.entities);
+	const auto mediaChanged = (before.mediaKey != MediaKey(item));
+	if (!textChanged && !mediaChanged) {
+		return;
+	}
 	const auto key = KeyFor(item);
+	auto version = EditVersion{
+		.date = before.date,
+		.text = before.text.text,
+		.entities = before.text.entities,
+	};
+	if (mediaChanged) {
+		version.media = KeepReplacedMedia(
+			key,
+			before.date,
+			before.mediaPath,
+			before.photo);
+	}
 	auto &state = Load();
-	auto &versions = state.edits[key];
-	versions.push_back({ .date = date, .text = oldText });
+	state.edits[key].push_back(version);
 	const auto meta = EditMeta{
 		.changedAt = base::unixtime::now(),
 		.from = item->from()->name(),
@@ -198,11 +289,28 @@ void LogEdit(not_null<HistoryItem*> item, const QString &oldText) {
 	object.insert(u"k"_q, u"e"_q);
 	object.insert(u"p"_q, QString::number(key.first));
 	object.insert(u"i"_q, QString::number(key.second));
-	object.insert(u"d"_q, int(date));
-	object.insert(u"t"_q, oldText);
+	object.insert(u"d"_q, int(version.date));
+	object.insert(u"t"_q, version.text);
 	object.insert(u"x"_q, int(meta.changedAt));
 	object.insert(u"f"_q, meta.from);
 	object.insert(u"c"_q, meta.chat);
+	if (!version.media.isEmpty()) {
+		object.insert(u"m"_q, version.media);
+	}
+	if (!version.entities.isEmpty()) {
+		auto array = QJsonArray();
+		for (const auto &entity : version.entities) {
+			auto value = QJsonObject();
+			value.insert(u"t"_q, int(entity.type()));
+			value.insert(u"o"_q, entity.offset());
+			value.insert(u"l"_q, entity.length());
+			if (!entity.data().isEmpty()) {
+				value.insert(u"d"_q, entity.data());
+			}
+			array.push_back(value);
+		}
+		object.insert(u"n"_q, array);
+	}
 	Append(object);
 }
 
@@ -233,8 +341,12 @@ std::vector<EditedEntry> EditedList() {
 }
 
 std::vector<EditVersion> EditsFor(not_null<const HistoryItem*> item) {
+	return EditsFor(item->history()->peer->id.value, item->id.bare);
+}
+
+std::vector<EditVersion> EditsFor(uint64 peer, int64 id) {
 	const auto &state = Load();
-	const auto i = state.edits.find(KeyFor(item));
+	const auto i = state.edits.find(Key(peer, id));
 	return (i != state.edits.end()) ? i->second : std::vector<EditVersion>();
 }
 

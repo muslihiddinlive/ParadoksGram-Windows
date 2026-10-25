@@ -3087,11 +3087,9 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 		existing->applyEdition(data);
 	}, [&](const auto &data) {
 		auto edition = HistoryMessageEdition(_session, data);
-		const auto &oldText = existing->originalText().text;
-		if (oldText != edition.textWithEntities.text) {
-			Paradoks::LogEdit(existing, oldText);
-		}
+		auto before = Paradoks::BeginEdit(existing);
 		existing->applyEdition(std::move(edition));
+		Paradoks::FinishEdit(existing, std::move(before));
 	});
 }
 

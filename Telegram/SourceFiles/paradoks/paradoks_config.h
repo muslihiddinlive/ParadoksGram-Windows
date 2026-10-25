@@ -22,6 +22,11 @@ enum class Flag : uchar {
 	KeepDeletedMedia,
 	TrackEdits,
 	HideSponsored,
+	NotifyDeleted,
+	PreSaveMedia,
+	RestoreBackupMedia,
+	RecordStreams,
+	OwnAds,
 
 	kCount,
 };
@@ -54,6 +59,12 @@ void SetSevenZipBroken();
 
 [[nodiscard]] int AppIconVariant();
 void SetAppIconVariant(int variant);
+
+// Free-form persistent values (paradoks.ini).
+[[nodiscard]] int IntSetting(const QString &key, int byDefault);
+void SetIntSetting(const QString &key, int value);
+[[nodiscard]] QString StringSetting(const QString &key);
+void SetStringSetting(const QString &key, const QString &value);
 
 [[nodiscard]] int VoiceEffect();
 void SetVoiceEffect(int mode);

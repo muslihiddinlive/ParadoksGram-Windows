@@ -99,7 +99,9 @@ Manager::QueuedNotification::QueuedNotification(NotificationFields &&fields)
 , topicRootId(fields.item->topicRootId())
 , peer(history->peer)
 , reaction(fields.reactionId)
-, author(!fields.reactionFrom
+, author(!fields.paradoksHeader.isEmpty()
+	? fields.paradoksHeader
+	: !fields.reactionFrom
 	? fields.item->notificationHeader()
 	: (fields.reactionFrom != peer)
 	? fields.reactionFrom->name()

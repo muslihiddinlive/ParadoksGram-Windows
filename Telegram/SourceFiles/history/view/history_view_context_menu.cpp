@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_context_menu.h"
 
+#include "paradoks/paradoks_media.h"
 #include "paradoks/paradoks_ui.h"
 
 #include "api/api_attached_stickers.h"
@@ -1409,6 +1410,14 @@ void AddMessageActions(
 		Paradoks::AddEditHistoryAction(
 			menu,
 			list->controller()->uiShow(),
+			request.item);
+		Paradoks::AddIdActions(
+			menu,
+			list->controller()->uiShow(),
+			request.item);
+		Paradoks::AddSavedMediaActions(
+			menu,
+			list->controller(),
 			request.item);
 	}
 	AddForwardAction(menu, request, list);

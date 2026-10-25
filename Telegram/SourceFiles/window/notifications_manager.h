@@ -272,6 +272,7 @@ public:
 		Data::ReactionId reactionId;
 		QByteArray pollVoteOption;
 		std::optional<DocumentId> soundId;
+		QString paradoksHeader; // Shown instead of the sender name.
 	};
 
 	explicit Manager(not_null<System*> system) : _system(system) {

@@ -43,6 +43,11 @@ constexpr auto kFlags = std::array<FlagInfo, kCount>{ {
 	{ "keep_deleted_media", true },
 	{ "track_edits", true },
 	{ "hide_sponsored", true },
+	{ "notify_deleted", false },
+	{ "pre_save_media", true },
+	{ "restore_backup_media", true },
+	{ "record_streams", false },
+	{ "own_ads", true },
 } };
 
 std::array<std::atomic<bool>, kCount> Values;
@@ -209,6 +214,26 @@ void SetAppIconVariant(int variant) {
 	IconVariant = variant;
 	auto settings = QSettings(FilePath(), QSettings::IniFormat);
 	settings.setValue(u"app_icon"_q, variant);
+}
+
+int IntSetting(const QString &key, int byDefault) {
+	auto settings = QSettings(FilePath(), QSettings::IniFormat);
+	return settings.value(key, byDefault).toInt();
+}
+
+void SetIntSetting(const QString &key, int value) {
+	auto settings = QSettings(FilePath(), QSettings::IniFormat);
+	settings.setValue(key, value);
+}
+
+QString StringSetting(const QString &key) {
+	auto settings = QSettings(FilePath(), QSettings::IniFormat);
+	return settings.value(key).toString();
+}
+
+void SetStringSetting(const QString &key, const QString &value) {
+	auto settings = QSettings(FilePath(), QSettings::IniFormat);
+	settings.setValue(key, value);
 }
 
 int VoiceEffect() {

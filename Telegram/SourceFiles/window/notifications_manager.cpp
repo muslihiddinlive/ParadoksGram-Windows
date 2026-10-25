@@ -1589,7 +1589,9 @@ void NativeManager::doShowNotification(NotificationFields &&fields) {
 			: QString())
 		: options.hideNameAndPhoto
 		? QString()
-		: item->notificationHeader();
+		: fields.paradoksHeader.isEmpty()
+		? item->notificationHeader()
+		: fields.paradoksHeader;
 	const auto text = pollVote
 		? TextWithPermanentSpoiler(ComposePollVoteNotification(
 			item,
