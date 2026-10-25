@@ -404,6 +404,12 @@ bool IsHidden(not_null<const History*> history) {
 			KeyFor(&history->session(), history->peer->id));
 }
 
+bool IsHiddenPeer(not_null<Main::Session*> session, PeerId peerId) {
+	const auto &state = Data();
+	return !state.hidden.empty()
+		&& state.hidden.contains(KeyFor(session, peerId));
+}
+
 bool NeedsUnlock(not_null<Main::Session*> session, PeerId peerId) {
 	const auto &state = Data();
 	if (state.hash.isEmpty()) {

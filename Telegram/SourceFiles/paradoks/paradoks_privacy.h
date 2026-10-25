@@ -26,6 +26,9 @@ namespace Paradoks {
 
 // Hidden chats leave the chat list and never notify (app-level only).
 [[nodiscard]] bool IsHidden(not_null<const History*> history);
+[[nodiscard]] bool IsHiddenPeer(
+	not_null<Main::Session*> session,
+	PeerId peerId);
 
 // Locked chats ask for the PIN each time they are opened.
 [[nodiscard]] bool NeedsUnlock(

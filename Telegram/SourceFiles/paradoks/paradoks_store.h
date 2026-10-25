@@ -16,6 +16,16 @@ struct EditVersion {
 	QString text;
 };
 
+// One edited message for the "edited radar".
+struct EditedEntry {
+	uint64 peer = 0;
+	int64 id = 0;
+	TimeId changedAt = 0; // When the last edit was noticed.
+	QString from;
+	QString chat;
+	std::vector<EditVersion> versions; // Old versions, oldest first.
+};
+
 struct DeletedEntry {
 	uint64 peer = 0;
 	int64 id = 0;
@@ -32,5 +42,7 @@ struct DeletedEntry {
 void LogEdit(not_null<HistoryItem*> item, const QString &oldText);
 [[nodiscard]] std::vector<EditVersion> EditsFor(
 	not_null<const HistoryItem*> item);
+// All edited messages, the most recently edited first.
+[[nodiscard]] std::vector<EditedEntry> EditedList();
 
 } // namespace Paradoks

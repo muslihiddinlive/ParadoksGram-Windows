@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 
+#include <algorithm>
 #include <map>
 #include <set>
 
@@ -34,8 +35,15 @@ constexpr auto kMaxMediaSize = int64(150) * 1024 * 1024;
 
 using Key = std::pair<uint64, int64>;
 
+struct EditMeta {
+	TimeId changedAt = 0;
+	QString from;
+	QString chat;
+};
+
 struct State {
 	std::set<Key> deletedKeys;
+	std::map<Key, EditMeta> editMeta;
 	std::vector<DeletedEntry> deleted;
 	std::map<Key, std::vector<EditVersion>> edits;
 };
@@ -80,6 +88,11 @@ struct State {
 					.date = TimeId(object.value(u"d"_q).toInt()),
 					.text = object.value(u"t"_q).toString(),
 				});
+				result.editMeta[key] = {
+					.changedAt = TimeId(object.value(u"x"_q).toInt()),
+					.from = object.value(u"f"_q).toString(),
+					.chat = object.value(u"c"_q).toString(),
+				};
 			}
 		}
 		return result;
@@ -172,14 +185,51 @@ void LogEdit(not_null<HistoryItem*> item, const QString &oldText) {
 	const auto edited = item->Get<HistoryMessageEdited>();
 	const auto date = (edited && edited->date) ? edited->date : item->date();
 	const auto key = KeyFor(item);
-	Load().edits[key].push_back({ .date = date, .text = oldText });
+	auto &state = Load();
+	auto &versions = state.edits[key];
+	versions.push_back({ .date = date, .text = oldText });
+	const auto meta = EditMeta{
+		.changedAt = base::unixtime::now(),
+		.from = item->from()->name(),
+		.chat = item->history()->peer->name(),
+	};
+	state.editMeta[key] = meta;
 	auto object = QJsonObject();
 	object.insert(u"k"_q, u"e"_q);
 	object.insert(u"p"_q, QString::number(key.first));
 	object.insert(u"i"_q, QString::number(key.second));
 	object.insert(u"d"_q, int(date));
 	object.insert(u"t"_q, oldText);
+	object.insert(u"x"_q, int(meta.changedAt));
+	object.insert(u"f"_q, meta.from);
+	object.insert(u"c"_q, meta.chat);
 	Append(object);
+}
+
+std::vector<EditedEntry> EditedList() {
+	const auto &state = Load();
+	auto result = std::vector<EditedEntry>();
+	result.reserve(state.edits.size());
+	for (const auto &[key, versions] : state.edits) {
+		auto entry = EditedEntry{
+			.peer = key.first,
+			.id = key.second,
+			.versions = versions,
+		};
+		const auto i = state.editMeta.find(key);
+		if (i != state.editMeta.end()) {
+			entry.changedAt = i->second.changedAt;
+			entry.from = i->second.from;
+			entry.chat = i->second.chat;
+		}
+		result.push_back(std::move(entry));
+	}
+	std::sort(result.begin(), result.end(), [](
+			const EditedEntry &a,
+			const EditedEntry &b) {
+		return a.changedAt > b.changedAt;
+	});
+	return result;
 }
 
 std::vector<EditVersion> EditsFor(not_null<const HistoryItem*> item) {

@@ -17,6 +17,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "base/unixtime.h"
 #include "base/timer.h"
+#include "data/data_session.h"
+#include "main/main_session.h"
+#include "ui/text/text_entity.h"
+#include "window/section_widget.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
 #include "ui/layers/generic_box.h"
@@ -85,18 +89,108 @@ void AddText(not_null<Ui::GenericBox*> box, const QString &text) {
 	box->addRow(object_ptr<Ui::FlatLabel>(box, text, st::boxLabel));
 }
 
-void RadarBox(not_null<Ui::GenericBox*> box) {
+void AddMarked(not_null<Ui::GenericBox*> box, TextWithEntities text) {
+	box->addRow(object_ptr<Ui::FlatLabel>(
+		box,
+		rpl::single(std::move(text)),
+		st::boxLabel));
+}
+
+[[nodiscard]] QStringList SplitWords(const QString &text) {
+	auto result = QStringList();
+	auto token = QString();
+	auto space = false;
+	for (const auto ch : text) {
+		const auto now = ch.isSpace();
+		if (!token.isEmpty() && now != space) {
+			result.push_back(token);
+			token.clear();
+		}
+		space = now;
+		token.append(ch);
+	}
+	if (!token.isEmpty()) {
+		result.push_back(token);
+	}
+	return result;
+}
+
+// Word level difference: removed words are struck out, added ones are
+// underlined.
+[[nodiscard]] TextWithEntities DiffText(
+		const QString &before,
+		const QString &after) {
+	const auto a = SplitWords(before);
+	const auto b = SplitWords(after);
+	const auto n = int(a.size());
+	const auto m = int(b.size());
+	auto result = TextWithEntities();
+	if (n * m > 160000) {
+		result.text = after;
+		return result;
+	}
+	const auto append = [&](const QString &token, EntityType type, bool mark) {
+		const auto offset = int(result.text.size());
+		result.text.append(token);
+		if (mark) {
+			result.entities.push_back(
+				EntityInText(type, offset, int(token.size())));
+		}
+	};
+	auto lcs = std::vector<std::vector<int>>(
+		n + 1,
+		std::vector<int>(m + 1, 0));
+	for (auto i = n - 1; i >= 0; --i) {
+		for (auto j = m - 1; j >= 0; --j) {
+			lcs[i][j] = (a[i] == b[j])
+				? (lcs[i + 1][j + 1] + 1)
+				: std::max(lcs[i + 1][j], lcs[i][j + 1]);
+		}
+	}
+	auto i = 0;
+	auto j = 0;
+	while (i < n && j < m) {
+		if (a[i] == b[j]) {
+			append(b[j], EntityType::Bold, false);
+			++i;
+			++j;
+		} else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+			append(a[i++], EntityType::StrikeOut, true);
+		} else {
+			append(b[j++], EntityType::Underline, true);
+		}
+	}
+	while (i < n) {
+		append(a[i++], EntityType::StrikeOut, true);
+	}
+	while (j < m) {
+		append(b[j++], EntityType::Underline, true);
+	}
+	return result;
+}
+
+[[nodiscard]] bool Reachable(
+		not_null<Window::SessionController*> controller,
+		uint64 peer) {
+	const auto session = &controller->session();
+	const auto peerId = PeerId(peer);
+	return !IsHiddenPeer(session, peerId) && !NeedsUnlock(session, peerId);
+}
+
+void RadarBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller) {
 	box->setTitle(rpl::single(u"O'chirilganlar radari"_q));
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 
 	const auto list = DeletedList();
-	if (list.empty()) {
-		AddText(box, u"Hozircha o'chirilgan xabar yo'q."_q);
-		return;
-	}
-	const auto from = std::max(int(list.size()) - kRadarLimit, 0);
-	for (auto i = int(list.size()) - 1; i >= from; --i) {
+	auto shown = 0;
+	for (auto i = int(list.size()) - 1; i >= 0 && shown < kRadarLimit; --i) {
 		const auto &entry = list[i];
+		if (!Reachable(controller, entry.peer)) {
+			continue;
+		}
+		++shown;
 		const auto text = entry.text.isEmpty()
 			? u"(matnsiz)"_q
 			: entry.text;
@@ -105,6 +199,9 @@ void RadarBox(not_null<Ui::GenericBox*> box) {
 			entry.from,
 			text,
 			FormatDate(entry.deletedAt)));
+	}
+	if (!shown) {
+		AddText(box, u"Hozircha o'chirilgan xabar yo'q."_q);
 	}
 }
 
@@ -117,13 +214,81 @@ void EditsBox(
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 
 	auto index = 0;
-	for (const auto &version : versions) {
+	for (auto i = 0; i != int(versions.size()); ++i) {
+		const auto &version = versions[i];
+		const auto next = (i + 1 < int(versions.size()))
+			? versions[i + 1].text
+			: current;
 		AddText(box, u"%1) %2\n%3"_q.arg(
 			++index).arg(
 			FormatDate(version.date),
 			version.text.isEmpty() ? u"(matnsiz)"_q : version.text));
+		auto change = TextWithEntities{ u"O'zgarish:  "_q };
+		change.append(DiffText(version.text, next));
+		AddMarked(box, std::move(change));
 	}
 	AddText(box, u"Hozirgi variant:\n"_q + current);
+}
+
+void EditedRadarBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller) {
+	box->setTitle(rpl::single(u"Tahrirlanganlar radari"_q));
+	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+
+	const auto session = &controller->session();
+	const auto list = EditedList();
+	auto shown = 0;
+	for (const auto &entry : list) {
+		if (shown >= kRadarLimit) {
+			break;
+		} else if (!Reachable(controller, entry.peer) || entry.versions.empty()) {
+			continue;
+		}
+		++shown;
+		const auto peerId = PeerId(entry.peer);
+		const auto msgId = MsgId(entry.id);
+		const auto &last = entry.versions.back();
+		const auto item = session->data().message(peerId, msgId);
+		const auto current = item ? item->originalText().text : QString();
+		const auto when = entry.changedAt ? entry.changedAt : last.date;
+
+		AddText(box, u"%1\n%2 · %3\n%4 marta tahrirlangan"_q.arg(
+			FormatDate(when),
+			entry.chat.isEmpty() ? u"(chat)"_q : entry.chat,
+			entry.from.isEmpty() ? u"(noma'lum)"_q : entry.from).arg(
+			int(entry.versions.size())));
+		if (item) {
+			auto change = TextWithEntities{ u"So'nggi o'zgarish:  "_q };
+			change.append(DiffText(last.text, current));
+			AddMarked(box, std::move(change));
+		} else {
+			AddText(box, u"Oldingi variant:\n"_q
+				+ (last.text.isEmpty() ? u"(matnsiz)"_q : last.text));
+		}
+		const auto versions = entry.versions;
+		box->addRow(object_ptr<Ui::LinkButton>(
+			box,
+			u"Hamma versiyalar"_q))->setClickedCallback([=] {
+			box->getDelegate()->show(Box(
+				EditsBox,
+				versions,
+				current.isEmpty() ? u"(yuklanmagan)"_q : current));
+		});
+		box->addRow(object_ptr<Ui::LinkButton>(
+			box,
+			u"Xabarga o'tish"_q))->setClickedCallback([=] {
+			box->closeBox();
+			controller->showPeerHistory(
+				peerId,
+				Window::SectionShow::Way::Forward,
+				msgId);
+		});
+		Ui::AddSkip(box->verticalLayout());
+	}
+	if (!shown) {
+		AddText(box, u"Hozircha tahrirlangan xabar yo'q."_q);
+	}
 }
 
 [[nodiscard]] QString SpeedText(double bytesPerSecond) {
@@ -327,7 +492,16 @@ void SettingsBox(
 			st::settingsButtonNoIcon),
 		style::margins());
 	radar->setClickedCallback([=] {
-		box->getDelegate()->show(Box(RadarBox));
+		box->getDelegate()->show(Box(RadarBox, controller));
+	});
+	const auto editedRadar = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"Tahrirlanganlar radari"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	editedRadar->setClickedCallback([=] {
+		box->getDelegate()->show(Box(EditedRadarBox, controller));
 	});
 	AddText(
 		box,
@@ -344,7 +518,7 @@ void AddEditHistoryAction(
 		return;
 	}
 	const auto current = item->originalText().text;
-	menu->addAction(u"Tahrirlar tarixi"_q, [=] {
+	menu->addAction(u"Tahrirlar tarixi (%1)"_q.arg(versions.size()), [=] {
 		show->showBox(Box(EditsBox, versions, current));
 	}, &st::menuIconInfo);
 }
