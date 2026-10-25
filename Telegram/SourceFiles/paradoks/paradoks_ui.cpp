@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_entity.h"
 #include "window/section_widget.h"
 #include "history/history_item.h"
+#include "lang/lang_cloud_manager.h"
 #include "lang/lang_keys.h"
 #include "ui/layers/generic_box.h"
 #include "ui/layers/show.h"
@@ -483,6 +484,22 @@ void SettingsBox(
 		"o'ng tugma bosing. Yashirin chatlarni ochish: qidiruv maydoniga "
 		"PIN ni yozing, yoki \u2630 menyudagi Ghost mode belgisini uzoq bosib "
 		"turing, yoki yuqoridagi shortcut."_q);
+
+	Ui::AddSkip(container);
+	const auto uzbek = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"O'zbek tili (to'liq, beta)"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	uzbek->setClickedCallback([=] {
+		Lang::CurrentCloudManager().switchToLanguage(u"uz-beta"_q);
+	});
+	AddText(
+		box,
+		u"Telegramning rasmiy beta o'zbek tilini bir bosishda yoqadi "
+		"(t.me/setlanguage/uz-beta). Tilni Sozlamalar → Til bo'limidan "
+		"qaytarish mumkin."_q);
 
 	Ui::AddSkip(container);
 	const auto radar = box->addRow(
