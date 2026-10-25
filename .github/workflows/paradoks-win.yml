@@ -176,6 +176,20 @@ jobs:
             echo "TDESKTOP_BUILD_API=-D TDESKTOP_API_TEST=ON" >> $GITHUB_ENV
           fi
 
+      - name: Ads server address.
+        shell: bash
+        env:
+          ADS_SERVER_URL: ${{ vars.ADS_SERVER_URL || secrets.ADS_SERVER_URL }}
+        run: |
+          FILE="$TBUILD/$REPO_NAME/Telegram/SourceFiles/paradoks/paradoks_ads_server.h"
+          URL="$(printf '%s' "$ADS_SERVER_URL" | tr -d '\r\n"\\ ')"
+          if [ -n "$URL" ]; then
+            printf '#pragma once\n#define PARADOKS_AD_SERVER "%s"\n' "$URL" > "$FILE"
+            echo "Own ads server address is set."
+          else
+            echo "ADS_SERVER_URL is empty, own ads stay off."
+          fi
+
       - name: Build output on D drive.
         run: |
           mkdir D:\out

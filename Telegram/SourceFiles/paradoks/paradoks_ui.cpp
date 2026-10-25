@@ -724,6 +724,17 @@ void SettingsBox(
 		box,
 		Flag::HideSponsored,
 		u"Reklamani yashirish (kanal va botlar)"_q);
+	AddToggle(
+		box,
+		Flag::OwnAds,
+		u"ParadoksGram reklamasi (reklama yashirilganda)"_q);
+	AddText(
+		box,
+		u"Telegram homiylik xabarlari yashirilganda kanal oxirida yoki bot "
+		"chati tepasida ParadoksGram'ning o'z reklamasi ko'rinishi mumkin. "
+		"Server manzili ilovada emas, GitHub build'ida beriladi (ADS_SERVER_URL). "
+		"Serverga faqat reklama raqami, hodisa turi (ko'rildi / bosildi) va "
+		"tasodifiy anonim raqam yuboriladi, Telegram ma'lumotlaringiz emas."_q);
 
 	AddBackupSection(box, controller);
 

@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "paradoks/paradoks_config.h"
 
+#include "paradoks/paradoks_ghost.h"
 #include "settings.h"
 
 #include "rpl/rpl.h"
@@ -99,6 +100,9 @@ void SetEnabled(Flag flag, bool value) {
 	settings.setValue(QString::fromLatin1(kFlags[int(flag)].key), value);
 	if (int(flag) <= int(Flag::GhostStories)) {
 		GhostEvents().fire({});
+	}
+	if (flag == Flag::GhostOnline) {
+		Ghost::OnOnlineSwitched(value);
 	}
 }
 

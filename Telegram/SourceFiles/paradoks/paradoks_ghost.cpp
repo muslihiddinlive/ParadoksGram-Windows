@@ -13,10 +13,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_peer.h"
 #include "history/history.h"
 #include "history/history_item.h"
+#include "core/application.h"
+#include "main/main_account.h"
+#include "main/main_domain.h"
 #include "main/main_session.h"
+
+#include <set>
 
 namespace Paradoks::Ghost {
 namespace {
+
+// Sessions that already got the single "offline" packet.
+std::set<uint64> StatusSent;
 
 [[nodiscard]] bool Active(Flag flag) {
 	return Enabled(flag) && InGhostWindow();
@@ -56,6 +64,29 @@ void MarkReadNow(not_null<History*> history) {
 			history->peer->input(),
 			MTP_int(last->id)
 		)).send();
+	}
+}
+
+bool AllowStatusPacket(not_null<Main::Session*> session) {
+	if (!Online()) {
+		StatusSent.clear();
+		return true;
+	}
+	return StatusSent.emplace(session->uniqueId()).second;
+}
+
+void OnOnlineSwitched(bool on) {
+	StatusSent.clear();
+	if (!on || !Online()) {
+		return;
+	}
+	for (const auto &entry : Core::App().domain().accounts()) {
+		if (const auto session = entry.account->maybeSession()) {
+			StatusSent.emplace(session->uniqueId());
+			session->api().request(MTPaccount_UpdateStatus(
+				MTP_bool(true)
+			)).send();
+		}
 	}
 }
 

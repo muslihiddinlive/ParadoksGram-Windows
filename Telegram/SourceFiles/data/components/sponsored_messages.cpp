@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_element.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
+#include "paradoks/paradoks_ads.h"
 #include "paradoks/paradoks_config.h"
 #include "ui/chat/sponsored_message_bar.h"
 #include "ui/text/text_utilities.h" // tr::rich.
@@ -303,7 +304,8 @@ HistoryItem *SponsoredMessages::injectItem(
 }
 
 bool SponsoredMessages::canHaveFor(not_null<History*> history) const {
-	if (Paradoks::Enabled(Paradoks::Flag::HideSponsored)) {
+	if (Paradoks::Enabled(Paradoks::Flag::HideSponsored)
+		&& !Paradoks::Ads::Active()) {
 		return false;
 	} else if (history->peer->isChannel()) {
 		return true;
@@ -348,6 +350,19 @@ void SponsoredMessages::request(not_null<History*> history, Fn<void()> done) {
 				return;
 			}
 		}
+	}
+	if (Paradoks::Enabled(Paradoks::Flag::HideSponsored)) {
+		// Telegram's ads are hidden: show our own ad (if any) instead.
+		const auto bot = !history->peer->isChannel();
+		const auto result = Paradoks::Ads::Build(bot);
+		if (result.type() == mtpc_messages_sponsoredMessagesEmpty) {
+			return;
+		}
+		parse(history, result);
+		if (done) {
+			done();
+		}
+		return;
 	}
 	request.requestId = _session->api().request(
 		MTPmessages_GetSponsoredMessages(
@@ -732,6 +747,14 @@ void SponsoredMessages::view(const FullMsgId &fullId) {
 }
 
 void SponsoredMessages::view(const QByteArray &randomId) {
+	if (Paradoks::Ads::IsOurs(randomId)) {
+		auto &own = _viewRequests[randomId];
+		if (!TooEarlyForRequest(own.lastReceived)) {
+			own.lastReceived = crl::now();
+			Paradoks::Ads::OnView(randomId);
+		}
+		return;
+	}
 	auto &request = _viewRequests[randomId];
 	if (request.requestId || TooEarlyForRequest(request.lastReceived)) {
 		return;
@@ -795,6 +818,10 @@ void SponsoredMessages::clicked(
 		const QByteArray &randomId,
 		bool isMedia,
 		bool isFullscreen) {
+	if (Paradoks::Ads::IsOurs(randomId)) {
+		Paradoks::Ads::OnClick(randomId);
+		return;
+	}
 	using Flag = MTPmessages_ClickSponsoredMessage::Flag;
 	_session->api().request(MTPmessages_ClickSponsoredMessage(
 		MTP_flags(Flag(0)

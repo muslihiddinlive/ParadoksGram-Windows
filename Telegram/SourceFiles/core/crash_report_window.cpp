@@ -482,11 +482,12 @@ LastCrashedWindow::LastCrashedWindow(
 		_reportShown = !_reportShown;
 		updateControls();
 	});
-	_saveReport.setText(u"SAVE TO FILE"_q);
+	_saveReport.setText(u"COPY / SAVE"_q);
 	connect(&_saveReport, &QPushButton::clicked, [=] { saveReport(); });
-	_getApp.setText(u"GET THE LATEST OFFICIAL VERSION OF TELEGRAM DESKTOP"_q);
+	_getApp.setText(u"GET THE LATEST VERSION OF PARADOKSGRAM"_q);
 	connect(&_getApp, &QPushButton::clicked, [=] {
-		QDesktopServices::openUrl(u"https://desktop.telegram.org"_q);
+		QDesktopServices::openUrl(
+			u"https://github.com/muslihiddinlive/ParadoksGram-Windows/releases/tag/latest"_q);
 	});
 
 	_send.setText(u"SEND CRASH REPORT"_q);
@@ -504,6 +505,9 @@ LastCrashedWindow::LastCrashedWindow(
 }
 
 void LastCrashedWindow::saveReport() {
+	// ParadoksGram: the report text always lands in the clipboard first.
+	QGuiApplication::clipboard()->setText(
+		QString::fromUtf8(getCrashReportRaw()));
 	QString to = QFileDialog::getSaveFileName(0, u"Telegram Crash Report"_q, QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + u"/report.telegramcrash"_q, u"Telegram crash report (*.telegramcrash)"_q);
 	if (!to.isEmpty()) {
 		QFile file(to);

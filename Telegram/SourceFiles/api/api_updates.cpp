@@ -1027,9 +1027,11 @@ void Updates::updateOnline(crl::time lastNonIdleTime, bool gotOtherOffline) {
 		_lastWasOnline = isOnline;
 		_lastSetOnline = ms;
 		if (!Core::Quitting()) {
-			_onlineRequest = api().request(MTPaccount_UpdateStatus(
-				MTP_bool(!isOnline || Paradoks::Ghost::Online())
-			)).send();
+			if (Paradoks::Ghost::AllowStatusPacket(&session())) {
+				_onlineRequest = api().request(MTPaccount_UpdateStatus(
+					MTP_bool(!isOnline || Paradoks::Ghost::Online())
+				)).send();
+			}
 		} else {
 			_onlineRequest = api().request(MTPaccount_UpdateStatus(
 				MTP_bool(!isOnline || Paradoks::Ghost::Online())

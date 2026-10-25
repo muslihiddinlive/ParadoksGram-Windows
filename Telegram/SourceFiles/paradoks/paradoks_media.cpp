@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "paradoks/paradoks_media.h"
 
+#include "paradoks/paradoks_ads.h"
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
@@ -391,6 +392,8 @@ void InstallForSession(not_null<Main::Session*> session) {
 			FlushPendingPhotos();
 		}
 	}, session->lifetime());
+
+	Ads::Refresh();
 
 	static auto cleaned = false;
 	if (!std::exchange(cleaned, true)) {

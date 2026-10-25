@@ -1703,8 +1703,13 @@ PRIVATE
     overview/overview_layout_delegate.h
     paradoks/paradoks_accounts.cpp
     paradoks/paradoks_accounts.h
+    paradoks/paradoks_ads.cpp
+    paradoks/paradoks_ads.h
+    paradoks/paradoks_ads_server.h
     paradoks/paradoks_config.cpp
     paradoks/paradoks_config.h
+    paradoks/paradoks_crash.cpp
+    paradoks/paradoks_crash.h
     paradoks/paradoks_ghost.cpp
     paradoks/paradoks_ghost.h
     paradoks/paradoks_hotkey.cpp

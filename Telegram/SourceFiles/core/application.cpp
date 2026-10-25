@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_crash.h"
 #include "paradoks/paradoks_hotkey.h"
 
 #include "data/data_abstract_structure.h"
@@ -568,6 +569,7 @@ void Application::startSettingsAndBackground() {
 		Window::Theme::KeepApplied();
 	}
 	Paradoks::Hotkey::Start();
+	Paradoks::Crash::Install();
 	Ui::SetScreenReaderModeDisabled(
 		settings().readPref<bool>(kScreenReaderModeDisabledKey));
 }

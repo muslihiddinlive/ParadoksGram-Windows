@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "paradoks/paradoks_privacy.h"
 
+#include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_ghost.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
 #include "history/history.h"
@@ -460,6 +462,16 @@ void AddChatActions(
 		locked ? u"Qulfni olish"_q : u"Chatni qulflash"_q,
 		[=] { ToggleLocked(controller, peer); },
 		&st::menuIconLock);
+	if (Enabled(Flag::GhostRead)) {
+		add(
+			u"O'qilgan deb belgilash (serverga)"_q,
+			[=] {
+				Ghost::MarkReadNow(
+					controller->session().data().history(peer));
+				controller->showToast(u"O'qildi belgisi yuborildi"_q);
+			},
+			&st::menuIconMarkRead);
+	}
 }
 
 void ShowHiddenChats(not_null<Window::SessionController*> controller) {
