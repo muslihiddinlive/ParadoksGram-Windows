@@ -1718,6 +1718,8 @@ PRIVATE
     paradoks/paradoks_hotkey.h
     paradoks/paradoks_media.cpp
     paradoks/paradoks_media.h
+    paradoks/paradoks_stream.cpp
+    paradoks/paradoks_stream.h
     paradoks/paradoks_privacy.cpp
     paradoks/paradoks_privacy.h
     paradoks/paradoks_story.cpp

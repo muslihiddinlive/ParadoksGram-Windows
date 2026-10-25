@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/group/calls_group_common.h"
 #include "calls/group/calls_group_messages.h"
 #include "calls/calls_instance.h"
+#include "paradoks/paradoks_stream.h"
 #include "main/session/session_show.h"
 #include "main/main_app_config.h"
 #include "main/main_session.h"
@@ -744,6 +745,7 @@ void GroupCall::processConferenceStart(StartConferenceInfo conference) {
 }
 
 GroupCall::~GroupCall() {
+	Paradoks::Stream::OnCallEnded(uint64(_id));
 	_e2e = nullptr;
 	destroyScreencast();
 	destroyController();
@@ -3224,6 +3226,23 @@ void GroupCall::broadcastPartStart(std::shared_ptr<LoadPartTask> task) {
 			const auto size = data.vbytes().v.size();
 			auto bytes = std::vector<uint8_t>(size);
 			memcpy(bytes.data(), data.vbytes().v.constData(), size);
+			{
+				const auto real = lookupReal();
+				Paradoks::Stream::OnPart(
+					&_peer->session(),
+					uint64(_id),
+					uint64(_peer->id.value),
+					real ? real->title() : QString(),
+					_peer->allowsForwarding(),
+					time,
+					videoChannel,
+					(videoQuality == Quality::Full)
+						? 2
+						: (videoQuality == Quality::Medium)
+						? 1
+						: 0,
+					bytes);
+			}
 			finish({
 				.timestampMilliseconds = time,
 				.responseTimestamp = TimestampFromMsgId(response.outerMsgId),

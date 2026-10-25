@@ -585,6 +585,17 @@ void AddBackupSection(
 		box,
 		Flag::RestoreBackupMedia,
 		u"Saqlangan nusxani xabar menyusida ko'rsatish"_q);
+	AddToggle(
+		box,
+		Flag::RecordStreams,
+		u"Jonli efirlarni yozib olish"_q);
+	AddText(
+		box,
+		u"Jonli efir yoki video chatni ko'rayotganingizda efir fon rejimida "
+		"yozib boriladi va efir tugagach (yoki 45 soniya jimlikdan keyin) "
+		"Saqlangan xabarlarga .mkv fayl sifatida yuboriladi. Nusxa qo'shimcha "
+		"ravishda tdata/paradoks_streams papkasida 7 kun saqlanadi. Yuborish "
+		"taqiqlangan (noforwards) chatlar yozilmaydi."_q);
 
 	const auto retention = box->lifetime().make_state<
 		rpl::variable<QString>>(RetentionLabel());

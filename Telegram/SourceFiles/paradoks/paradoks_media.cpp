@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_ads.h"
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_privacy.h"
+#include "paradoks/paradoks_stream.h"
 #include "paradoks/paradoks_store.h"
 #include "api/api_common.h"
 #include "apiwrap.h"
@@ -493,6 +494,7 @@ int64 SavedMediaBytes() {
 }
 
 void CleanupMedia() {
+	Stream::Cleanup();
 	struct Entry {
 		QString path;
 		QDateTime time;
