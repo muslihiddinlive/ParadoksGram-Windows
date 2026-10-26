@@ -326,7 +326,7 @@ void SendToSaved(
 		std::move(list),
 		SendMediaType::File,
 		nullptr,
-		Api::SendAction(session->data().history(session->user())));
+		Api::SendAction(session->data().history(session->userPeerId())));
 }
 
 void RemoveRawParts(const QString &dir) {
