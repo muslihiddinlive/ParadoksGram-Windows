@@ -27,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_entity.h"
 #include "window/section_widget.h"
 #include "history/history_item.h"
+#include "history/history_item_components.h"
 #include "lang/lang_cloud_manager.h"
 #include "lang/lang_keys.h"
 #include "ui/layers/generic_box.h"
@@ -983,6 +984,13 @@ void AddEditHistoryAction(
 		not_null<HistoryItem*> item) {
 	auto versions = EditsFor(item);
 	if (versions.empty()) {
+		if (item->Has<HistoryMessageEdited>() && !item->hideEditedBadge()) {
+			menu->addAction(u"Tahrirlar tarixi (yo'q)"_q, [=] {
+				show->showToast(
+					u"Bu xabar ParadoksGram kuzatuvidan oldin tahrirlangan, "
+					"eski matni saqlanmagan. Keyingi tahrirlar saqlanadi."_q);
+			}, &st::menuIconInfo);
+		}
 		return;
 	}
 	const auto current = item->originalText();

@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_session.h"
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_debug.h"
 #include "paradoks/paradoks_store.h"
 
 #include "main/main_session.h"
@@ -3076,6 +3077,7 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 		return message(peerFromMTP(data.vpeer_id()), data.vid().v);
 	});
 	if (!existing) {
+		Paradoks::Debug::Log(u"edit update for a message that is not loaded"_q);
 		Reactions::CheckUnknownForUnread(this, data);
 		return;
 	}

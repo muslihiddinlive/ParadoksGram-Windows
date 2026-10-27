@@ -263,6 +263,7 @@ void FinishEdit(not_null<HistoryItem*> item, EditSnapshot &&before) {
 	const auto textChanged = (before.text.text != now.text)
 		|| !SameEntities(before.text.entities, now.entities);
 	const auto mediaChanged = (before.mediaKey != MediaKey(item));
+	Debug::Log(u"edit update %1_%2 textChanged=%3 mediaChanged=%4"_q.arg(item->history()->peer->id.value).arg(item->id.bare).arg(textChanged).arg(mediaChanged));
 	if (!textChanged && !mediaChanged) {
 		return;
 	}
@@ -279,7 +280,6 @@ void FinishEdit(not_null<HistoryItem*> item, EditSnapshot &&before) {
 			before.mediaPath,
 			before.photo);
 	}
-	Debug::Log(u"edit tracked %1_%2 textChanged=%3 mediaChanged=%4"_q.arg(key.first).arg(key.second).arg(textChanged).arg(mediaChanged));
 	auto &state = Load();
 	state.edits[key].push_back(version);
 	const auto meta = EditMeta{
