@@ -151,7 +151,10 @@ private:
 
 // Joins audio and video parts of the stream into one Matroska file placing
 // every part at its own time offset. Returns false if nothing was written.
-[[nodiscard]] bool Remux(const Job &job, const QString &outPath) {
+[[nodiscard]] bool Remux(
+		const Job &job,
+		const QString &outBase,
+		QString &outPath) {
 	auto all = std::vector<Segment>();
 	all.reserve(job.audio.size() + job.video.size());
 	all.insert(end(all), begin(job.audio), end(job.audio));
@@ -165,9 +168,46 @@ private:
 		return a.time < b.time;
 	});
 
+	// The build has only mp4 and webm muxers: webm when the codecs fit.
+	auto audioCodec = AV_CODEC_ID_NONE;
+	auto videoCodec = AV_CODEC_ID_NONE;
+	auto probedCodecs = 0;
+	for (const auto &segment : all) {
+		if ((audioCodec != AV_CODEC_ID_NONE
+			&& videoCodec != AV_CODEC_ID_NONE)
+			|| (++probedCodecs > kMaxProbedSegments)) {
+			break;
+		}
+		const auto in = OpenInput(segment.path);
+		if (!in) {
+			continue;
+		}
+		for (auto i = 0u; i != in->nb_streams; ++i) {
+			const auto params = in->streams[i]->codecpar;
+			if (params->codec_type == AVMEDIA_TYPE_AUDIO
+				&& audioCodec == AV_CODEC_ID_NONE) {
+				audioCodec = params->codec_id;
+			} else if (params->codec_type == AVMEDIA_TYPE_VIDEO
+				&& videoCodec == AV_CODEC_ID_NONE) {
+				videoCodec = params->codec_id;
+			}
+		}
+	}
+	const auto webm = (videoCodec == AV_CODEC_ID_NONE
+		|| videoCodec == AV_CODEC_ID_VP8
+		|| videoCodec == AV_CODEC_ID_VP9
+		|| videoCodec == AV_CODEC_ID_AV1)
+		&& (audioCodec == AV_CODEC_ID_NONE
+			|| audioCodec == AV_CODEC_ID_OPUS
+			|| audioCodec == AV_CODEC_ID_VORBIS);
+	outPath = outBase + (webm ? u".webm"_q : u".mp4"_q);
+
 	auto raw = (AVFormatContext*)nullptr;
-	if (avformat_alloc_output_context2(&raw, nullptr, "matroska", nullptr)
-		< 0 || !raw) {
+	if (avformat_alloc_output_context2(
+		&raw,
+		nullptr,
+		webm ? "webm" : "mp4",
+		nullptr) < 0 || !raw) {
 		return false;
 	}
 	auto out = Output(raw);
@@ -340,8 +380,8 @@ void RemoveRawParts(const QString &dir) {
 
 void Run(Job job) {
 	crl::async([job = std::move(job)] {
-		const auto temp = job.dir + u"/rec.mkv"_q;
-		const auto ok = Remux(job, temp);
+		auto temp = QString();
+		const auto ok = Remux(job, job.dir + u"/rec"_q, temp);
 		auto finalPath = QString();
 		if (ok) {
 			auto name = u"Efir"_q;
@@ -351,13 +391,18 @@ void Run(Job job) {
 			}
 			name += '_' + QDateTime::currentDateTime().toString(
 				u"yyyy-MM-dd_HH-mm"_q);
-			finalPath = job.dir + '/' + name + u".mkv"_q;
+			finalPath = job.dir
+				+ '/'
+				+ name
+				+ (temp.endsWith(u".webm"_q) ? u".webm"_q : u".mp4"_q);
 			if (!QFile::rename(temp, finalPath)) {
 				finalPath = temp;
 			}
 			RemoveRawParts(job.dir);
 		} else {
-			QFile::remove(temp);
+			if (!temp.isEmpty()) {
+				QFile::remove(temp);
+			}
 			QDir(job.dir).removeRecursively();
 		}
 		if (!ok) {

@@ -344,6 +344,16 @@ QString PhotoVideoFilesFilter() {
 		+ AllFilesFilter();
 }
 
+QString StoryFilesFilter() {
+	return u"Image, Video and Audio Files (*"_q
+		+ Ui::ImageExtensions().join(u" *"_q)
+		+ u" *.mp4 *.m4v *.mov *.qt *.3gp *.3g2 *.webm *.mkv *.mka"_q
+		+ u" *.avi *.wmv *.flv *.mpg *.mpeg *.ts *.m2ts *.mts *.ogv"_q
+		+ u" *.mp3 *.m4a *.m4b *.mp4a *.aac *.ogg *.oga *.opus *.flac"_q
+		+ u" *.wav);;"_q
+		+ AllFilesFilter();
+}
+
 QString PhotoVideoAudioFilesFilter() {
 	return u"Image, Video and Audio Files (*"_q
 		+ Ui::ImageExtensions().join(u" *"_q)

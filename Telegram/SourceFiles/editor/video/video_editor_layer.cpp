@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "editor/video/video_editor.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
+#include "paradoks/paradoks_story.h"
 #include "media/media_video_frames.h"
 #include "storage/storage_media_prepare.h"
 #include "ui/boxes/confirm_box.h"
@@ -247,12 +248,16 @@ void PrepareStoryMediaFromFile(
 			controller->show(Ui::MakeInformBox(tr::lng_bad_photo()));
 			return;
 		}
+		if (!Media::Video::ReadFileInfo(path).valid()
+			&& Paradoks::Story::PrepareAudio(path, done)) {
+			return;
+		}
 		PrepareStoryVideo(parent, controller, path, std::move(done));
 	};
 	FileDialog::GetOpenPath(
 		parent.get(),
 		tr::lng_choose_image(tr::now),
-		FileDialog::PhotoVideoFilesFilter(),
+		FileDialog::StoryFilesFilter(),
 		crl::guard(parent, callback));
 }
 

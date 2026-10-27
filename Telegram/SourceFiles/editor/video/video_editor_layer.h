@@ -33,6 +33,8 @@ inline constexpr auto kProfileVideoFps = 30.;
 struct ProfileMedia {
 	QImage image;
 	std::shared_ptr<Media::Encode::VideoSource> video;
+	// Audio file turned into a picture with music.
+	std::shared_ptr<Media::Encode::Job> still;
 };
 
 inline constexpr auto kStoryWidth = 720;

@@ -17,11 +17,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "editor/photo_editor_layer_widget.h"
 #include "editor/video/video_editor_layer.h"
+#include "ffmpeg/ffmpeg_utility.h"
 #include "media/media_video_encode.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "mainwidget.h"
 #include "mtproto/mtproto_response.h"
+#include "settings.h"
 #include "storage/file_upload.h"
 #include "storage/localimageloader.h"
 #include "ui/layers/generic_box.h"
@@ -38,6 +40,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtCore/QBuffer>
 #include <QtCore/QFile>
+#include <QtCore/QFileInfo>
+#include <QtGui/QLinearGradient>
+#include <QtGui/QPainter>
+
+#include <algorithm>
+#include <memory>
+#include <optional>
 
 namespace Paradoks::Story {
 namespace {
@@ -45,6 +54,9 @@ namespace {
 constexpr auto kMaxWidth = 1080;
 constexpr auto kMaxHeight = 1920;
 constexpr auto kPreviewHeight = 240;
+constexpr auto kStillWidth = 720;
+constexpr auto kStillHeight = 1280;
+constexpr auto kStillMaxDuration = crl::time(60000);
 
 struct Options {
 	QString caption;
@@ -53,6 +65,99 @@ struct Options {
 	bool noForwards = false;
 	bool pinned = false;
 };
+
+struct AudioInfo {
+	crl::time duration = 0;
+	QImage cover;
+};
+
+struct InputCloser {
+	void operator()(AVFormatContext *context) const {
+		if (context) {
+			avformat_close_input(&context);
+		}
+	}
+};
+
+[[nodiscard]] std::optional<AudioInfo> ReadAudioInfo(const QString &path) {
+	auto raw = (AVFormatContext*)nullptr;
+	const auto utf8 = path.toUtf8();
+	if (avformat_open_input(&raw, utf8.constData(), nullptr, nullptr) < 0) {
+		return std::nullopt;
+	}
+	const auto context = std::unique_ptr<AVFormatContext, InputCloser>(raw);
+	if (avformat_find_stream_info(context.get(), nullptr) < 0) {
+		return std::nullopt;
+	}
+	auto result = AudioInfo();
+	auto hasAudio = false;
+	for (auto i = 0u; i != context->nb_streams; ++i) {
+		const auto stream = context->streams[i];
+		if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+			hasAudio = true;
+		}
+		if ((stream->disposition & AV_DISPOSITION_ATTACHED_PIC)
+			&& stream->attached_pic.size > 0
+			&& result.cover.isNull()) {
+			result.cover = QImage::fromData(
+				stream->attached_pic.data,
+				stream->attached_pic.size);
+		}
+	}
+	if (context->duration != AV_NOPTS_VALUE) {
+		result.duration = context->duration / (AV_TIME_BASE / 1000);
+	}
+	if (!hasAudio || result.duration <= 0) {
+		return std::nullopt;
+	}
+	return result;
+}
+
+[[nodiscard]] QImage MakeAudioFrame(const QString &path, const QImage &cover) {
+	auto result = QImage(
+		kStillWidth,
+		kStillHeight,
+		QImage::Format_ARGB32_Premultiplied);
+	auto p = QPainter(&result);
+	auto hq = PainterHighQualityEnabler(p);
+	auto gradient = QLinearGradient(0, 0, 0, kStillHeight);
+	gradient.setColorAt(0., QColor(40, 52, 96));
+	gradient.setColorAt(1., QColor(10, 14, 28));
+	p.fillRect(QRect(0, 0, kStillWidth, kStillHeight), gradient);
+	const auto box = QRect(80, 260, 560, 560);
+	if (!cover.isNull()) {
+		const auto size = cover.size().scaled(
+			box.size(),
+			Qt::KeepAspectRatio);
+		p.drawImage(
+			QRect(
+				box.x() + (box.width() - size.width()) / 2,
+				box.y() + (box.height() - size.height()) / 2,
+				size.width(),
+				size.height()),
+			cover);
+	} else {
+		p.setPen(Qt::NoPen);
+		p.setBrush(QColor(255, 255, 255, 28));
+		p.drawEllipse(box);
+		auto font = QFont();
+		font.setPixelSize(300);
+		p.setFont(font);
+		p.setPen(QColor(255, 255, 255, 230));
+		p.drawText(box, Qt::AlignCenter, QString(QChar(0x266A)));
+	}
+	auto font = QFont();
+	font.setPixelSize(46);
+	font.setBold(true);
+	p.setFont(font);
+	p.setPen(Qt::white);
+	p.drawText(
+		QRect(60, 880, kStillWidth - 120, 240),
+		Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap,
+		QFileInfo(path).completeBaseName());
+	p.end();
+	return result;
+}
 
 [[nodiscard]] QImage Prepared(QImage image) {
 	if (image.width() > kMaxWidth || image.height() > kMaxHeight) {
@@ -393,6 +498,41 @@ void SendVideo(
 	});
 }
 
+void SendStill(
+		not_null<Window::SessionController*> controller,
+		std::shared_ptr<Media::Encode::Job> job,
+		QImage cover,
+		const Options &options) {
+	const auto toast = MakeToast(controller);
+	const auto weak = base::make_weak(controller);
+	toast(u"Video tayyorlanmoqda... (bir necha daqiqa olishi mumkin)"_q);
+	crl::async([=] {
+		auto copy = *job;
+		auto rendered = Media::Encode::Run(std::move(copy));
+		auto result = Media::Encode::TranscodeResult();
+		if (!rendered.empty()) {
+			const auto path = cWorkingDir()
+				+ u"tdata/paradoks_story_tmp.mp4"_q;
+			auto file = QFile(path);
+			if (file.open(QIODevice::WriteOnly)
+				&& file.write(rendered.bytes) == rendered.bytes.size()) {
+				file.close();
+				result.path = path;
+				result.cover = cover;
+				result.dimensions = rendered.dimensions;
+				result.duration = rendered.duration;
+			}
+		}
+		crl::on_main(weak, [=, result = std::move(result)]() mutable {
+			if (result.empty()) {
+				toast(u"Videoni tayyorlab bo'lmadi."_q);
+				return;
+			}
+			UploadVideo(weak.get(), std::move(result), options);
+		});
+	});
+}
+
 void OptionsBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller,
@@ -492,7 +632,9 @@ void OptionsBox(
 			.pinned = pinned->checked(),
 		};
 		box->closeBox();
-		if (media.video) {
+		if (media.still) {
+			SendStill(controller, media.still, image, options);
+		} else if (media.video) {
 			SendVideo(controller, media.video, options);
 		} else {
 			SendPhoto(controller, media.image, options);
@@ -502,6 +644,33 @@ void OptionsBox(
 }
 
 } // namespace
+
+bool PrepareAudio(
+		const QString &path,
+		Fn<void(Editor::StoryMedia&&)> done) {
+	const auto info = ReadAudioInfo(path);
+	if (!info) {
+		return false;
+	}
+	const auto length = std::min(info->duration, kStillMaxDuration);
+	auto frame = MakeAudioFrame(path, info->cover);
+	auto music = std::vector<Media::Encode::MusicTrack>();
+	music.push_back({
+		.path = path,
+		.from = 0,
+		.till = length,
+		.volume = 1.,
+	});
+	auto job = std::make_shared<Media::Encode::Job>();
+	job->source = Media::Encode::StillSource{
+		.base = frame,
+		.duration = length,
+		.fps = 30.,
+		.music = std::move(music),
+	};
+	done({ .image = std::move(frame), .still = std::move(job) });
+	return true;
+}
 
 void Start(not_null<Window::SessionController*> controller) {
 	Editor::PrepareStoryMediaFromFile(

@@ -593,7 +593,7 @@ void AddBackupSection(
 		box,
 		u"Jonli efir yoki video chatni ko'rayotganingizda efir fon rejimida "
 		"yozib boriladi va efir tugagach (yoki 45 soniya jimlikdan keyin) "
-		"Saqlangan xabarlarga .mkv fayl sifatida yuboriladi. Nusxa qo'shimcha "
+		"Saqlangan xabarlarga .webm yoki .mp4 fayl sifatida yuboriladi. Nusxa qo'shimcha "
 		"ravishda tdata/paradoks_streams papkasida 7 kun saqlanadi. Yuborish "
 		"taqiqlangan (noforwards) chatlar yozilmaydi."_q);
 

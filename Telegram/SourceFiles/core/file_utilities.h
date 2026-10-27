@@ -97,6 +97,7 @@ void GetFolder(
 [[nodiscard]] QString ImagesOrAllFilter();
 [[nodiscard]] QString PhotoVideoFilesFilter();
 [[nodiscard]] QString PhotoVideoAudioFilesFilter();
+[[nodiscard]] QString StoryFilesFilter();
 [[nodiscard]] QString AudioFilesFilter();
 [[nodiscard]] QString MusicFilesFilter();
 [[nodiscard]] const QString &Tmp();
