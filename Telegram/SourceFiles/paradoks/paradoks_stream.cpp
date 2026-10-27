@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_stream.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_debug.h"
 #include "api/api_common.h"
 #include "apiwrap.h"
 #include "base/timer.h"
@@ -359,8 +360,10 @@ void SendToSaved(
 		session->premium());
 	if (list.error != Ui::PreparedList::Error::None
 		|| list.files.empty()) {
+		Debug::Log(u"stream send failed: cannot prepare file "_q + path);
 		return;
 	}
+	Debug::Log(u"stream sending to Saved Messages: "_q + path);
 	list.files.front().caption = TextWithTags{ caption };
 	session->api().sendFiles(
 		std::move(list),
@@ -382,6 +385,7 @@ void Run(Job job) {
 	crl::async([job = std::move(job)] {
 		auto temp = QString();
 		const auto ok = Remux(job, job.dir + u"/rec"_q, temp);
+		Debug::Log(u"stream remux call=%1 ok=%2 file=%3"_q.arg(job.callId).arg(ok).arg(temp));
 		auto finalPath = QString();
 		if (ok) {
 			auto name = u"Efir"_q;
@@ -480,6 +484,7 @@ void Finish(uint64 callId) {
 	if (bestVideo != rec.groups.end()) {
 		take(bestVideo->second, job.video);
 	}
+	Debug::Log(u"stream finish call=%1 audioParts=%2 videoParts=%3"_q.arg(callId).arg(job.audio.size()).arg(job.video.size()));
 	if (int(job.audio.size() + job.video.size()) < kMinParts) {
 		QDir(job.dir).removeRecursively();
 		return;
@@ -507,6 +512,7 @@ void OnPart(
 	}
 	auto &slot = Active[callId];
 	if (!slot) {
+		Debug::Log(u"stream recording started call=%1"_q.arg(callId));
 		slot = std::make_unique<Recording>();
 		slot->callId = callId;
 		slot->session = base::make_weak(session);

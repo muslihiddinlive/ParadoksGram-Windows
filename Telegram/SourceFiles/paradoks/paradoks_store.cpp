@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_store.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_debug.h"
 #include "paradoks/paradoks_media.h"
 #include "base/unixtime.h"
 #include "data/data_document.h"
@@ -209,6 +210,7 @@ bool KeepDeleted(not_null<HistoryItem*> item) {
 		.hasMedia = (item->media() != nullptr),
 	};
 	state.deleted.push_back(entry);
+	Debug::Log(u"kept deleted %1_%2 hasMedia=%3"_q.arg(entry.peer).arg(entry.id).arg(entry.hasMedia));
 	auto object = QJsonObject();
 	object.insert(u"k"_q, u"d"_q);
 	object.insert(u"p"_q, QString::number(entry.peer));
@@ -277,6 +279,7 @@ void FinishEdit(not_null<HistoryItem*> item, EditSnapshot &&before) {
 			before.mediaPath,
 			before.photo);
 	}
+	Debug::Log(u"edit tracked %1_%2 textChanged=%3 mediaChanged=%4"_q.arg(key.first).arg(key.second).arg(textChanged).arg(mediaChanged));
 	auto &state = Load();
 	state.edits[key].push_back(version);
 	const auto meta = EditMeta{

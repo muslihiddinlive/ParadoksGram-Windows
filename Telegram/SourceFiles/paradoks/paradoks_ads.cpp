@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "paradoks/paradoks_ads_server.h"
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_debug.h"
 #include "apiwrap.h"
 
 #include <QtCore/QDate>
@@ -193,6 +194,7 @@ bool Active() {
 
 void Refresh() {
 	if (!Active()) {
+		Debug::Log(u"ads inactive (ownAds=%1 server='%2')"_q.arg(Enabled(Flag::OwnAds)).arg(Server()));
 		return;
 	}
 	LoadCache();
@@ -210,6 +212,7 @@ void Refresh() {
 		LastFetch = crl::now();
 		const auto status = reply->attribute(
 			QNetworkRequest::HttpStatusCodeAttribute).toInt();
+		Debug::Log(u"ads fetch status=%1 error=%2"_q.arg(status).arg(reply->errorString()));
 		if (reply->error() == QNetworkReply::NoError
 			&& status == 200
 			&& reply->bytesAvailable() <= kMaxBody) {

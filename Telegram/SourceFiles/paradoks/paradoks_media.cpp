@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "paradoks/paradoks_ads.h"
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_debug.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_stream.h"
 #include "paradoks/paradoks_store.h"
@@ -164,6 +165,7 @@ void PreSave(not_null<HistoryItem*> item) {
 		if (document->size <= 0 || document->size > kPreSaveMaxSize) {
 			return;
 		}
+		Debug::Log(u"presave document %1_%2 size=%3"_q.arg(peer).arg(id).arg(document->size));
 		const auto path = PreFolder()
 			+ Prefix(peer, id)
 			+ SafeName(document->filename());
@@ -177,6 +179,7 @@ void PreSave(not_null<HistoryItem*> item) {
 		}
 		auto view = photo->createMediaView();
 		view->wanted(Data::PhotoSize::Large, item->fullId());
+		Debug::Log(u"presave photo %1_%2"_q.arg(peer).arg(id));
 		PendingPhotos.push_back({ std::move(view), path });
 		while (PendingPhotos.size() > kMaxPendingPhotos) {
 			PendingPhotos.pop_front();
@@ -377,6 +380,7 @@ void OnNewItem(
 } // namespace
 
 void InstallForSession(not_null<Main::Session*> session) {
+	Debug::Log(u"install session %1 (keepMedia=%2 preSave=%3 notify=%4 target=%5)"_q.arg(session->userId().bare).arg(Enabled(Flag::KeepDeletedMedia)).arg(Enabled(Flag::PreSaveMedia)).arg(Enabled(Flag::NotifyDeleted)).arg(DbTarget(session).value));
 	session->data().newItemAdded(
 	) | rpl::on_next([=](not_null<HistoryItem*> item) {
 		OnNewItem(session, item);
@@ -419,9 +423,13 @@ void KeepMediaFor(not_null<HistoryItem*> item) {
 	}
 	const auto pre = FindByPrefix(PreFolder(), prefix);
 	if (!pre.isEmpty()) {
-		QFile::copy(pre, MediaFolder() + QFileInfo(pre).fileName());
+		const auto copied = QFile::copy(
+			pre,
+			MediaFolder() + QFileInfo(pre).fileName());
+		Debug::Log(u"keep media %1_%2: from pre-save copy ok=%3"_q.arg(peer).arg(id).arg(copied));
 		return;
 	}
+	Debug::Log(u"keep media %1_%2: no pre-save copy, document=%3 photo=%4"_q.arg(peer).arg(id).arg(media->document() != nullptr).arg(media->photo() != nullptr));
 	if (const auto document = media->document()) {
 		const auto path = document->filepath(true);
 		if (path.isEmpty() || QFileInfo(path).size() > kMaxMediaSize) {
@@ -563,6 +571,7 @@ void NotifyDeleted(not_null<HistoryItem*> item) {
 		|| item->out()
 		|| IsHidden(item->history())
 		|| !Core::App().settings().desktopNotify()) {
+		Debug::Log(u"notify deleted skipped: enabled=%1 out=%2 hidden=%3 desktopNotify=%4"_q.arg(Enabled(Flag::NotifyDeleted)).arg(item->out()).arg(IsHidden(item->history())).arg(Core::App().settings().desktopNotify()));
 		return;
 	}
 	const auto history = item->history();
@@ -587,6 +596,7 @@ void NotifyDeleted(not_null<HistoryItem*> item) {
 	const auto header = QString::fromUtf8("\xF0\x9F\x97\x91 ")
 		+ who
 		+ u" xabarni o'chirdi"_q;
+	Debug::Log(u"notify deleted shown"_q);
 	Core::App().notifications().manager().showNotification({
 		.item = item,
 		.paradoksHeader = header,

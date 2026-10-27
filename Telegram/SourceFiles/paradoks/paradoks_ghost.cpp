@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_ghost.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_debug.h"
 #include "apiwrap.h"
 #include "data/data_channel.h"
 #include "data/data_peer.h"
@@ -72,7 +73,9 @@ bool AllowStatusPacket(not_null<Main::Session*> session) {
 		StatusSent.clear();
 		return true;
 	}
-	return StatusSent.emplace(session->uniqueId()).second;
+	const auto first = StatusSent.emplace(session->uniqueId()).second;
+	Debug::Log(u"ghost online: status packet %1"_q.arg(first ? u"sent once (offline)"_q : u"blocked"_q));
+	return first;
 }
 
 void OnOnlineSwitched(bool on) {

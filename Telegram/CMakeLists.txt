@@ -1716,6 +1716,8 @@ PRIVATE
     paradoks/paradoks_icon.cpp
     paradoks/paradoks_icon.h
     paradoks/paradoks_hotkey.h
+    paradoks/paradoks_debug.cpp
+    paradoks/paradoks_debug.h
     paradoks/paradoks_media.cpp
     paradoks/paradoks_media.h
     paradoks/paradoks_stream.cpp

@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_ui.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_debug.h"
 #include "paradoks/paradoks_hotkey.h"
 #include "paradoks/paradoks_icon.h"
 #include "paradoks/paradoks_privacy.h"
@@ -667,6 +668,26 @@ void AddBackupSection(
 		"tanlagan shaxsiy kanal yoki guruhga jimgina forward qilinadi. "
 		"Yuboruvchi o'chirsa ham nusxa qoladi. Faqat shaxsiy chat va "
 		"guruhlardagi, forward taqiqlanmagan xabarlar yuboriladi."_q);
+
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, rpl::single(u"Diagnostika"_q));
+	const auto logButton = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"Diagnostika jurnalini nusxalash"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	logButton->setClickedCallback([=] {
+		auto text = u"ParadoksGram V%1\n"_q.arg(Update::CurrentBuild())
+			+ Debug::Tail();
+		QGuiApplication::clipboard()->setText(text);
+		controller->showToast(u"Jurnal nusxalandi"_q);
+	});
+	AddText(
+		box,
+		u"Funksiya ishlamasa: jurnalni nusxalab, dasturchiga yuboring. "
+		"Unda faqat funksiyalar holati bor (chat nomlari va xabar matni "
+		"yo'q)."_q);
 }
 
 [[nodiscard]] QString SpeedLabel() {
