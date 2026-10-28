@@ -24,6 +24,9 @@ namespace Storage {
 // and then we get a CDN-redirect where we support only
 // fixed part size download for hash checking.
 constexpr auto kDownloadPartSize = 128 * 1024;
+// ParadoksGram: big documents are requested with 1 MB parts, which is the
+// maximum the server allows (offset must be a multiple of the limit).
+constexpr auto kBigDownloadPartSize = 1024 * 1024;
 
 class DownloadMtprotoTask;
 
@@ -53,7 +56,8 @@ public:
 		MTP::DcId dcId,
 		int index,
 		int amountAtRequestStart,
-		crl::time timeAtRequestStart);
+		crl::time timeAtRequestStart,
+		int partSize);
 	void checkSendNextAfterSuccess(MTP::DcId dcId);
 	[[nodiscard]] int chooseSessionIndex(MTP::DcId dcId) const;
 
@@ -155,6 +159,7 @@ public:
 	[[nodiscard]] const Location &location() const;
 
 	[[nodiscard]] virtual bool readyToRequest() const = 0;
+	[[nodiscard]] virtual int partSize() const;
 	void loadPart(int sessionIndex);
 	void removeSession(int sessionIndex);
 
@@ -181,6 +186,7 @@ private:
 		int64 offset = 0;
 		mutable int sessionIndex = 0;
 		int requestedInSession = 0;
+		int amount = 0;
 		crl::time sent = 0;
 
 		inline bool operator<(const RequestData &other) const {

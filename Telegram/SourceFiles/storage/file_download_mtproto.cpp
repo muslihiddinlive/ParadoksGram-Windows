@@ -41,6 +41,14 @@ mtpFileLoader::mtpFileLoader(
 	autoLoading,
 	cacheTag)
 , DownloadMtprotoTask(&session->downloader(), location, origin) {
+	// Big documents are downloaded with 1 MB parts (the server maximum).
+	constexpr auto kBigDocumentFrom = int64(4 * 1024 * 1024);
+	if (location.type() == StorageFileLocation::Type::Document
+		&& fullSize >= kBigDocumentFrom
+		&& loadSize >= kBigDocumentFrom
+		&& Paradoks::StringSetting(u"download/bigparts"_q) != u"0"_q) {
+		_partSize = Storage::kBigDownloadPartSize;
+	}
 }
 
 mtpFileLoader::mtpFileLoader(
@@ -136,11 +144,15 @@ bool mtpFileLoader::readyToRequest() const {
 		&& (!_fullSize || _nextRequestOffset < _loadSize);
 }
 
+int mtpFileLoader::partSize() const {
+	return _partSize;
+}
+
 int64 mtpFileLoader::takeNextRequestOffset() {
 	Expects(readyToRequest());
 
 	const auto result = _nextRequestOffset;
-	_nextRequestOffset += Storage::kDownloadPartSize;
+	_nextRequestOffset += _partSize;
 	return result;
 }
 
@@ -193,8 +205,8 @@ void mtpFileLoader::startLoadingWithPartial(const QByteArray &data) {
 	Expects(data.startsWith("partial:"));
 
 	constexpr auto kPrefix = 8;
-	const auto parts = (data.size() - kPrefix) / Storage::kDownloadPartSize;
-	const auto use = parts * int64(Storage::kDownloadPartSize);
+	const auto parts = (data.size() - kPrefix) / _partSize;
+	const auto use = parts * int64(_partSize);
 	if (use > 0) {
 		_nextRequestOffset = use;
 		_paradoksResume = true;

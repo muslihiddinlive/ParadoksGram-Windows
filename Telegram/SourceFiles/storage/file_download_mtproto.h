@@ -63,11 +63,13 @@ private:
 	void cancelHook() override;
 
 	bool readyToRequest() const override;
+	int partSize() const override;
 	int64 takeNextRequestOffset() override;
 	bool feedPart(int64 offset, const QByteArray &bytes) override;
 	void cancelOnFail() override;
 	bool setWebFileSizeHook(int64 size) override;
 
+	int _partSize = Storage::kDownloadPartSize;
 	bool _lastComplete = false;
 	bool _paradoksResume = false;
 	int64 _nextRequestOffset = 0;
