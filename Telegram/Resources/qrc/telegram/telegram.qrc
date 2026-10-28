@@ -4,6 +4,10 @@
     <file alias="art/bg_thumbnail.png">../../art/bg_thumbnail.png</file>
     <file alias="art/bg_initial.jpg">../../art/bg_initial.jpg</file>
     <file alias="art/business_logo.png">../../art/business_logo.png</file>
+    <file alias="art/paradoks_ai_shell.png">../../art/paradoks_ai_shell.png</file>
+    <file alias="art/paradoks_ai_visor.png">../../art/paradoks_ai_visor.png</file>
+    <file alias="art/paradoks_ai_trim.png">../../art/paradoks_ai_trim.png</file>
+    <file alias="art/paradoks_ai_eyes.png">../../art/paradoks_ai_eyes.png</file>
     <file alias="art/affiliate_logo.png">../../art/affiliate_logo.png</file>
     <file alias="art/logo_256.png">../../art/logo_256.png</file>
     <file alias="art/logo_256_no_margin.png">../../art/logo_256_no_margin.png</file>
