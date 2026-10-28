@@ -1706,6 +1706,8 @@ PRIVATE
     paradoks/paradoks_ads.cpp
     paradoks/paradoks_ads.h
     paradoks/paradoks_ads_server.h
+    paradoks/paradoks_ai.cpp
+    paradoks/paradoks_ai.h
     paradoks/paradoks_config.cpp
     paradoks/paradoks_config.h
     paradoks/paradoks_crash.cpp
