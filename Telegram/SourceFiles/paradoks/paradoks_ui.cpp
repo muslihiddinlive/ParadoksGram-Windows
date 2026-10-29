@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_icon.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
+#include "paradoks/paradoks_report.h"
 #include "paradoks/paradoks_update.h"
 #include "paradoks/paradoks_voice.h"
 #include "window/window_session_controller.h"
@@ -684,6 +685,33 @@ void AddBackupSection(
 		QGuiApplication::clipboard()->setText(text);
 		controller->showToast(u"Jurnal nusxalandi"_q);
 	});
+	AddToggle(
+		box,
+		Flag::ErrorReports,
+		u"Xatolarni avtomatik yuborish"_q);
+	const auto sendButton = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"Hato haqida xabar yuborish"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	sendButton->setClickedCallback([=] {
+		Report::Send(
+			&controller->session(),
+			u"qo'lda yuborildi"_q,
+			u"Foydalanuvchi sozlamalardan yubordi."_q,
+			[=](bool ok) {
+				controller->showToast(ok
+					? u"Hato hisoboti yuborildi"_q
+					: u"Hisobotni yuborib bo'lmadi (internet?)"_q);
+			});
+	});
+	AddText(
+		box,
+		u"Dastur kutilmaganda yopilsa yoki ulanish 45 soniyadan ko'p "
+		"qotib qolsa, hisobot (qurilma, vaqt, xato joyi, jurnal va "
+		"akkaunt ma'lumotlari: ID, ism, username, telefon) dasturchiga "
+		"o'zi yuboriladi. Xabar matni va chat nomlari yuborilmaydi."_q);
 	AddText(
 		box,
 		u"Funksiya ishlamasa: jurnalni nusxalab, dasturchiga yuboring. "

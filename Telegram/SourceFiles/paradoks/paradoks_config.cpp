@@ -50,6 +50,7 @@ constexpr auto kFlags = std::array<FlagInfo, kCount>{ {
 	{ "record_streams", false },
 	{ "own_ads", true },
 	{ "finish_downloads", true },
+	{ "error_reports", true },
 } };
 
 std::array<std::atomic<bool>, kCount> Values;

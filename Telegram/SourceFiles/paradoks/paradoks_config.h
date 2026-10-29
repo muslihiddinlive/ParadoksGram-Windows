@@ -28,6 +28,7 @@ enum class Flag : uchar {
 	RecordStreams,
 	OwnAds,
 	FinishDownloads,
+	ErrorReports,
 
 	kCount,
 };

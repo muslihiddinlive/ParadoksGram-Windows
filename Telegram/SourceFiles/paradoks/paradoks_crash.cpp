@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "paradoks/paradoks_crash.h"
 
+#include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_report.h"
 #include "paradoks/paradoks_update.h"
 #include "base/call_delayed.h"
 #include "lang/lang_keys.h"
@@ -225,8 +227,18 @@ void ShowLastIfAny(not_null<Main::Session*> session) {
 	} else if (text.size() > kMaxText) {
 		text = text.left(kMaxText) + u"\n..."_q;
 	}
-	base::call_delayed(3000, session, [text] {
-		Ui::show(Box(CrashBox, text));
+	const auto weak = base::make_weak(session);
+	base::call_delayed(3000, session, [=] {
+		if (!Enabled(Flag::ErrorReports)) {
+			Ui::show(Box(CrashBox, text));
+			return;
+		}
+		// Sent by itself; the box is only a fallback if sending fails.
+		Report::Send(weak.get(), u"xato (crash)"_q, text, [=](bool ok) {
+			if (!ok) {
+				Ui::show(Box(CrashBox, text));
+			}
+		});
 	});
 }
 
