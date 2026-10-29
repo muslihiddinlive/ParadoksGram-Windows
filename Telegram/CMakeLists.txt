@@ -1710,6 +1710,8 @@ PRIVATE
     paradoks/paradoks_ai.h
     paradoks/paradoks_config.cpp
     paradoks/paradoks_config.h
+    paradoks/paradoks_clone.cpp
+    paradoks/paradoks_clone.h
     paradoks/paradoks_crash.cpp
     paradoks/paradoks_crash.h
     paradoks/paradoks_ghost.cpp

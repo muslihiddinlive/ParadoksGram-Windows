@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "paradoks/paradoks_privacy.h"
 
+#include "paradoks/paradoks_clone.h"
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_ghost.h"
 #include "data/data_peer.h"
@@ -462,6 +463,12 @@ void AddChatActions(
 		locked ? u"Qulfni olish"_q : u"Chatni qulflash"_q,
 		[=] { ToggleLocked(controller, peer); },
 		&st::menuIconLock);
+	if (Clone::CanClone(peer)) {
+		add(
+			u"Chatni klon qilish"_q,
+			[=] { Clone::Start(controller, peer); },
+			&st::menuIconForward);
+	}
 	if (Enabled(Flag::GhostRead)) {
 		add(
 			u"O'qilgan deb belgilash (serverga)"_q,
