@@ -159,7 +159,9 @@ public:
 	[[nodiscard]] const Location &location() const;
 
 	[[nodiscard]] virtual bool readyToRequest() const = 0;
+	// Size of the next part, called before takeNextRequestOffset().
 	[[nodiscard]] virtual int partSize() const;
+	[[nodiscard]] virtual bool cdnSupported() const;
 	void loadPart(int sessionIndex);
 	void removeSession(int sessionIndex);
 

@@ -479,19 +479,26 @@ void DownloadMtprotoTask::refreshFileReferenceFrom(
 }
 
 void DownloadMtprotoTask::loadPart(int sessionIndex) {
-	makeRequest({ takeNextRequestOffset(), sessionIndex });
+	const auto size = partSize();
+	const auto offset = takeNextRequestOffset();
+	makeRequest({ offset, sessionIndex, 0, size });
 }
 
 void DownloadMtprotoTask::removeSession(int sessionIndex) {
 	struct Redirect {
 		mtpRequestId requestId = 0;
 		int64 offset = 0;
+		int amount = 0;
 	};
 	auto redirect = std::vector<Redirect>();
 	for (const auto &[requestId, requestData] : _sentRequests) {
 		if (requestData.sessionIndex == sessionIndex) {
 			redirect.reserve(_sentRequests.size());
-			redirect.push_back({ requestId, requestData.offset });
+			redirect.push_back({
+				requestId,
+				requestData.offset,
+				requestData.amount,
+			});
 		}
 	}
 	for (auto &[requestData, bytes] : _cdnUncheckedParts) {
@@ -501,13 +508,13 @@ void DownloadMtprotoTask::removeSession(int sessionIndex) {
 			requestData.sessionIndex = newIndex;
 		}
 	}
-	for (const auto &[requestId, offset] : redirect) {
+	for (const auto &[requestId, offset, amount] : redirect) {
 		const auto needMakeRequest = (requestId != _cdnHashesRequestId);
 		cancelRequest(requestId);
 		if (needMakeRequest) {
 			const auto newIndex = _owner->chooseSessionIndex(dcId());
 			Assert(newIndex < sessionIndex);
-			makeRequest({ offset, newIndex });
+			makeRequest({ offset, newIndex, 0, amount });
 		}
 	}
 }
@@ -515,7 +522,9 @@ void DownloadMtprotoTask::removeSession(int sessionIndex) {
 mtpRequestId DownloadMtprotoTask::sendRequest(
 		const RequestData &requestData) {
 	const auto offset = requestData.offset;
-	const auto limit = partSize();
+	const auto limit = requestData.amount
+		? requestData.amount
+		: Storage::kDownloadPartSize;
 	const auto shiftedDcId = MTP::downloadDcId(
 		_cdnDcId ? _cdnDcId : dcId(),
 		requestData.sessionIndex);
@@ -581,7 +590,7 @@ mtpRequestId DownloadMtprotoTask::sendRequest(
 	}, [&](const StorageFileLocation &location) {
 		const auto reference = location.fileReference();
 		return api().request(MTPupload_GetFile(
-			MTP_flags((limit == Storage::kDownloadPartSize)
+			MTP_flags(cdnSupported()
 				? MTPupload_GetFile::Flag::f_cdn_supported
 				: MTPupload_GetFile::Flag(0)),
 			location.tl(api().session().userId()),
@@ -601,6 +610,10 @@ bool DownloadMtprotoTask::setWebFileSizeHook(int64 size) {
 
 int DownloadMtprotoTask::partSize() const {
 	return Storage::kDownloadPartSize;
+}
+
+bool DownloadMtprotoTask::cdnSupported() const {
+	return true;
 }
 
 void DownloadMtprotoTask::makeRequest(const RequestData &requestData) {
@@ -813,7 +826,9 @@ void DownloadMtprotoTask::placeSentRequest(
 		subscribeToNonPremiumLimit();
 	}
 
-	const auto size = partSize();
+	const auto size = requestData.amount
+		? requestData.amount
+		: Storage::kDownloadPartSize;
 	const auto amount = _owner->changeRequestedAmount(
 		dcId(),
 		requestData.sessionIndex,

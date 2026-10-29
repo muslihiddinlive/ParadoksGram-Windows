@@ -354,7 +354,11 @@ void FileLoader::cancel(FailureReason fail) {
 	if (_fileIsOpen) {
 		_file.close();
 		_fileIsOpen = false;
-		_file.remove();
+		if (_keepFileOnCancel) {
+			keepPartialFile();
+		} else {
+			_file.remove();
+		}
 	}
 	_data = QByteArray();
 
@@ -368,6 +372,10 @@ void FileLoader::cancel(FailureReason fail) {
 		_filename = QString();
 		_file.setFileName(_filename);
 	}
+}
+
+void FileLoader::keepPartialFile() {
+	_file.remove();
 }
 
 int64 FileLoader::currentOffset() const {

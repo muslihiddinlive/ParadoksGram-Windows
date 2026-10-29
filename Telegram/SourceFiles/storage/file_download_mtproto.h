@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "storage/file_download.h"
 #include "storage/download_manager_mtproto.h"
+#include "base/flat_map.h"
 
 class mtpFileLoader final
 	: public FileLoader
@@ -64,12 +65,21 @@ private:
 
 	bool readyToRequest() const override;
 	int partSize() const override;
+	bool cdnSupported() const override;
+	void keepPartialFile() override;
+	[[nodiscard]] bool tryResumeFromPart();
+	void removePartFiles();
+	void noteDone(int64 offset, int64 size);
 	int64 takeNextRequestOffset() override;
 	bool feedPart(int64 offset, const QByteArray &bytes) override;
 	void cancelOnFail() override;
 	bool setWebFileSizeHook(int64 size) override;
 
 	int _partSize = Storage::kDownloadPartSize;
+	// Length of the contiguous downloaded prefix of the file.
+	int64 _contiguous = 0;
+	base::flat_map<int64, int64> _ahead;
+	bool _resumed = false;
 	bool _lastComplete = false;
 	bool _paradoksResume = false;
 	int64 _nextRequestOffset = 0;

@@ -152,6 +152,9 @@ protected:
 	virtual void startLoadingWithPartial(const QByteArray &data) {
 		startLoading();
 	}
+	// Called from cancel() with the already closed file, which is going
+	// to be removed unless _keepFileOnCancel is set and this is overridden.
+	virtual void keepPartialFile();
 
 	void cancel(FailureReason failed);
 
@@ -172,6 +175,7 @@ protected:
 	QString _filename;
 	QFile _file;
 	bool _fileIsOpen = false;
+	bool _keepFileOnCancel = false;
 
 	LoadToCacheSetting _toCache;
 	LoadFromCloudSetting _fromCloud;
