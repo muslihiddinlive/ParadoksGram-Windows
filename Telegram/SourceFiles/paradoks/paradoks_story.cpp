@@ -32,6 +32,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/vertical_list.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/fields/input_field.h"
+#include "ui/widgets/labels.h"
+#include "main/main_app_config.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
 #include "styles/style_boxes.h"
@@ -41,6 +43,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QBuffer>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
+#include <QtGui/QClipboard>
+#include <QtGui/QGuiApplication>
 #include <QtGui/QLinearGradient>
 #include <QtGui/QPainter>
 
@@ -643,6 +647,287 @@ void OptionsBox(
 	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 }
 
+struct LiveCall {
+	uint64 id = 0;
+	uint64 accessHash = 0;
+};
+
+[[nodiscard]] std::optional<LiveCall> FindLiveCall(const MTPUpdates &result) {
+	const auto scan = [](const QVector<MTPUpdate> &list)
+	-> std::optional<LiveCall> {
+		for (const auto &update : list) {
+			if (update.type() != mtpc_updateGroupCall) {
+				continue;
+			}
+			const auto &call = update.c_updateGroupCall().vcall();
+			if (call.type() == mtpc_groupCall) {
+				const auto &data = call.c_groupCall();
+				return LiveCall{
+					.id = uint64(data.vid().v),
+					.accessHash = uint64(data.vaccess_hash().v),
+				};
+			}
+		}
+		return std::nullopt;
+	};
+	return result.match([&](const MTPDupdates &data) {
+		return scan(data.vupdates().v);
+	}, [&](const MTPDupdatesCombined &data) {
+		return scan(data.vupdates().v);
+	}, [](const auto &) -> std::optional<LiveCall> {
+		return std::nullopt;
+	});
+}
+
+[[nodiscard]] int ParseStars(
+		not_null<Main::Session*> session,
+		const QString &text) {
+	const auto value = text.trimmed().toInt();
+	return std::clamp(value, 0, session->appConfig().paidMessageStarsMax());
+}
+
+void SetLivePriceBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		LiveCall call,
+		int current) {
+	box->setTitle(rpl::single(u"Xabar narxi"_q));
+	const auto session = &controller->session();
+	const auto input = box->addRow(
+		object_ptr<Ui::InputField>(
+			box,
+			st::defaultInputField,
+			Ui::InputField::Mode::SingleLine,
+			rpl::single(u"Stars (0 = bepul)"_q),
+			QString::number(current)),
+		st::boxRowPadding);
+	const auto toast = MakeToast(controller);
+	box->addButton(rpl::single(u"Saqlash"_q), [=] {
+		const auto stars = ParseStars(session, input->getLastText());
+		auto flags = MTPphone_ToggleGroupCallSettings::Flags(0)
+			| MTPphone_ToggleGroupCallSettings::Flag::f_send_paid_messages_stars;
+		session->api().request(MTPphone_ToggleGroupCallSettings(
+			MTP_flags(flags),
+			MTP_inputGroupCall(
+				MTP_long(call.id),
+				MTP_long(call.accessHash)),
+			MTPBool(),
+			MTPBool(),
+			MTP_long(stars)
+		)).done([=](const MTPUpdates &result) {
+			session->api().applyUpdates(result);
+			toast(stars
+				? (u"Xabar narxi: "_q + QString::number(stars) + u" Stars"_q)
+				: u"Xabarlar bepul qilindi"_q);
+		}).fail([=](const MTP::Error &error) {
+			toast(u"Saqlab bo'lmadi: "_q + error.type());
+		}).send();
+		box->closeBox();
+	});
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
+void LiveInfoBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		std::optional<LiveCall> call,
+		int stars,
+		const QString &url,
+		const QString &key) {
+	box->setTitle(rpl::single(u"Jonli efir tayyor"_q));
+	const auto session = &controller->session();
+	const auto toast = MakeToast(controller);
+	const auto addText = [&](const QString &text) {
+		box->addRow(
+			object_ptr<Ui::FlatLabel>(
+				box,
+				rpl::single(text),
+				st::boxLabel),
+			st::boxRowPadding);
+	};
+	addText(u"OBS (yoki boshqa RTMP dastur) da \"Stream\" -> \"Custom\" tanlang, "
+		"quyidagi Server va Stream key ni kiriting va \"Start Streaming\" "
+		"bosing. Efir story kabi ko'rinadi."_q);
+	Ui::AddSkip(box->verticalLayout());
+	addText(u"Server: "_q + url);
+	Ui::AddSkip(box->verticalLayout());
+	addText(u"Stream key: "_q + key);
+	Ui::AddSkip(box->verticalLayout());
+	addText(stars
+		? (u"Tomoshabin xabar yozishi uchun "_q
+			+ QString::number(stars) + u" Stars to'laydi."_q)
+		: u"Efirga xabar yozish bepul."_q);
+	Ui::AddSkip(box->verticalLayout());
+	addText(u"Kalitni hech kimga bermang."_q);
+
+	box->addButton(rpl::single(u"Serverni nusxalash"_q), [=] {
+		QGuiApplication::clipboard()->setText(url);
+		toast(u"Server nusxalandi"_q);
+	});
+	box->addButton(rpl::single(u"Kalitni nusxalash"_q), [=] {
+		QGuiApplication::clipboard()->setText(key);
+		toast(u"Kalit nusxalandi"_q);
+	});
+	if (call) {
+		const auto live = *call;
+		box->addLeftButton(rpl::single(u"Narxni o'zgartirish"_q), [=] {
+			controller->show(Box(SetLivePriceBox, controller, live, stars));
+		});
+		box->addLeftButton(rpl::single(u"Efirni tugatish"_q), [=] {
+			session->api().request(MTPphone_DiscardGroupCall(
+				MTP_inputGroupCall(
+					MTP_long(live.id),
+					MTP_long(live.accessHash))
+			)).done([=](const MTPUpdates &result) {
+				session->api().applyUpdates(result);
+				toast(u"Efir tugatildi"_q);
+			}).fail([=](const MTP::Error &error) {
+				toast(u"Tugatib bo'lmadi: "_q + error.type());
+			}).send();
+			box->closeBox();
+		});
+	}
+}
+
+void RequestLiveKey(
+		not_null<Window::SessionController*> controller,
+		std::optional<LiveCall> call,
+		int stars) {
+	const auto session = &controller->session();
+	const auto toast = MakeToast(controller);
+	const auto weak = base::make_weak(controller);
+	session->api().request(MTPphone_GetGroupCallStreamRtmpUrl(
+		MTP_flags(MTPphone_GetGroupCallStreamRtmpUrl::Flag::f_live_story),
+		session->user()->input(),
+		MTP_bool(false)
+	)).done([=](const MTPphone_GroupCallStreamRtmpUrl &result) {
+		const auto &data = result.c_phone_groupCallStreamRtmpUrl();
+		const auto url = qs(data.vurl());
+		const auto key = qs(data.vkey());
+		if (const auto strong = weak.get()) {
+			strong->show(Box(LiveInfoBox, strong, call, stars, url, key));
+		}
+	}).fail([=](const MTP::Error &error) {
+		toast(u"Efir kalitini olib bo'lmadi: "_q + error.type());
+	}).send();
+}
+
+void StartLiveRequest(
+		not_null<Window::SessionController*> controller,
+		const Options &options,
+		int stars) {
+	const auto session = &controller->session();
+	const auto toast = MakeToast(controller);
+	auto flags = MTPstories_StartLive::Flags(0)
+		| MTPstories_StartLive::Flag::f_rtmp_stream
+		| MTPstories_StartLive::Flag::f_messages_enabled;
+	if (!options.caption.isEmpty()) {
+		flags |= MTPstories_StartLive::Flag::f_caption;
+	}
+	if (options.noForwards) {
+		flags |= MTPstories_StartLive::Flag::f_noforwards;
+	}
+	if (options.pinned) {
+		flags |= MTPstories_StartLive::Flag::f_pinned;
+	}
+	if (stars > 0) {
+		flags |= MTPstories_StartLive::Flag::f_send_paid_messages_stars;
+	}
+	session->api().request(MTPstories_StartLive(
+		MTP_flags(flags),
+		session->user()->input(),
+		MTP_string(options.caption),
+		MTPVector<MTPMessageEntity>(),
+		PrivacyRules(options.privacy),
+		MTP_long(base::RandomValue<uint64>()),
+		MTP_bool(true),
+		MTP_long(stars)
+	)).done([=](const MTPUpdates &result) {
+		const auto call = FindLiveCall(result);
+		session->api().applyUpdates(result);
+		toast(u"Jonli efir boshlandi"_q);
+		RequestLiveKey(controller, call, stars);
+	}).fail([=](const MTP::Error &error) {
+		toast(u"Efirni boshlab bo'lmadi: "_q + error.type());
+	}).send();
+}
+
+void LiveBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller) {
+	box->setTitle(rpl::single(u"Jonli efir (Live)"_q));
+	const auto container = box->verticalLayout();
+	const auto session = &controller->session();
+
+	const auto input = box->addRow(
+		object_ptr<Ui::InputField>(
+			box,
+			st::defaultInputField,
+			Ui::InputField::Mode::MultiLine,
+			rpl::single(u"Efir sarlavhasi (ixtiyoriy)"_q)),
+		st::boxRowPadding);
+	input->setMaxLength(session->premium() ? 2048 : 200);
+
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(
+		container,
+		rpl::single(u"Efirga xabar yozish narxi (Stars)"_q));
+	const auto price = box->addRow(
+		object_ptr<Ui::InputField>(
+			box,
+			st::defaultInputField,
+			Ui::InputField::Mode::SingleLine,
+			rpl::single(u"0 = bepul"_q),
+			u"0"_q),
+		st::boxRowPadding);
+
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, rpl::single(u"Kim ko'radi"_q));
+	const auto privacy = std::make_shared<Ui::RadiobuttonGroup>(0);
+	const auto addPrivacy = [&](int value, const QString &text) {
+		box->addRow(
+			object_ptr<Ui::Radiobutton>(
+				box,
+				privacy,
+				value,
+				text,
+				st::defaultBoxCheckbox),
+			st::boxRowPadding);
+	};
+	addPrivacy(0, u"Hamma"_q);
+	addPrivacy(1, u"Kontaktlar"_q);
+	addPrivacy(2, u"Yaqin do'stlar"_q);
+
+	Ui::AddSkip(container);
+	const auto noForwards = box->addRow(
+		object_ptr<Ui::Checkbox>(
+			box,
+			u"Nusxalash va ulashishni taqiqlash"_q,
+			false,
+			st::defaultBoxCheckbox),
+		st::boxRowPadding);
+	const auto pinned = box->addRow(
+		object_ptr<Ui::Checkbox>(
+			box,
+			u"Yozuvni profilda saqlash"_q,
+			false,
+			st::defaultBoxCheckbox),
+		st::boxRowPadding);
+
+	box->addButton(rpl::single(u"Efirni boshlash"_q), [=] {
+		const auto options = Options{
+			.caption = input->getLastText().trimmed(),
+			.privacy = privacy->current(),
+			.noForwards = noForwards->checked(),
+			.pinned = pinned->checked(),
+		};
+		const auto stars = ParseStars(session, price->getLastText());
+		box->closeBox();
+		StartLiveRequest(controller, options, stars);
+	});
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
 } // namespace
 
 bool PrepareAudio(
@@ -670,6 +955,10 @@ bool PrepareAudio(
 	};
 	done({ .image = std::move(frame), .still = std::move(job) });
 	return true;
+}
+
+void StartLive(not_null<Window::SessionController*> controller) {
+	controller->show(Box(LiveBox, controller));
 }
 
 void Start(not_null<Window::SessionController*> controller) {

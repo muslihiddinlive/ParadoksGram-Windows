@@ -697,6 +697,16 @@ void MainMenu::setupMenu() {
 		_menu->add(
 			CreateButtonWithIcon(
 				_menu,
+				rpl::single(u"Live boshlash"_q),
+				st::mainMenuButton,
+				{ &st::menuIconPhotoSet })
+		)->setClickedCallback([=] {
+			Paradoks::Story::StartLive(controller);
+		});
+
+		_menu->add(
+			CreateButtonWithIcon(
+				_menu,
 				rpl::single(u"Paradoks AI"_q),
 				st::mainMenuButton,
 				{ &st::menuIconBot })
