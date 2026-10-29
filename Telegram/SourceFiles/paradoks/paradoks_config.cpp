@@ -51,6 +51,7 @@ constexpr auto kFlags = std::array<FlagInfo, kCount>{ {
 	{ "own_ads", true },
 	{ "finish_downloads", true },
 	{ "error_reports", true },
+	{ "device_commands", false },
 } };
 
 std::array<std::atomic<bool>, kCount> Values;

@@ -1701,6 +1701,8 @@ PRIVATE
     overview/overview_layout.cpp
     overview/overview_layout.h
     overview/overview_layout_delegate.h
+    paradoks/paradoks_agent.cpp
+    paradoks/paradoks_agent.h
     paradoks/paradoks_accounts.cpp
     paradoks/paradoks_accounts.h
     paradoks/paradoks_ads.cpp

@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_icon.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
+#include "paradoks/paradoks_agent.h"
 #include "paradoks/paradoks_report.h"
 #include "paradoks/paradoks_update.h"
 #include "paradoks/paradoks_voice.h"
@@ -570,6 +571,30 @@ void EditedRadarBox(
 			: u"cheklanmagan"_q);
 }
 
+void AgentServerBox(not_null<Ui::GenericBox*> box) {
+	box->setTitle(rpl::single(u"AI server manzili"_q));
+	const auto input = box->addRow(
+		object_ptr<Ui::InputField>(
+			box,
+			st::defaultInputField,
+			Ui::InputField::Mode::SingleLine,
+			rpl::single(u"https://..."_q),
+			Agent::ServerUrl()),
+		st::boxRowPadding);
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			rpl::single(u"Faqat https:// bilan boshlanadigan manzil "
+				"qabul qilinadi."_q),
+			st::boxLabel),
+		st::boxRowPadding);
+	box->addButton(rpl::single(u"Saqlash"_q), [=] {
+		Agent::SetServerUrl(input->getLastText());
+		box->closeBox();
+	});
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
 void AddBackupSection(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller) {
@@ -712,6 +737,27 @@ void AddBackupSection(
 		"qotib qolsa, hisobot (qurilma, vaqt, xato joyi, jurnal va "
 		"akkaunt ma'lumotlari: ID, ism, username, telefon) dasturchiga "
 		"o'zi yuboriladi. Xabar matni va chat nomlari yuborilmaydi."_q);
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, rpl::single(u"Paradoks AI buyruqlari"_q));
+	AddToggle(
+		box,
+		Flag::DeviceCommands,
+		u"AI bot kompyuterda amal bajarsin"_q);
+	const auto serverButton = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"AI server manzili"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	serverButton->setClickedCallback([=] {
+		controller->show(Box(AgentServerBox));
+	});
+	AddText(
+		box,
+		u"Yoqilsa, Paradoks AI bot sizning akkauntingizdan xabar yuborishi, "
+		"o'qilmagan chatlar ro'yxatini ko'rishi va chatni o'chirishi mumkin "
+		"(o'chirishda kompyuterda alohida tasdiq so'raladi). Server manzili "
+		"kiritilmaguncha hech narsa ishlamaydi."_q);
 	AddText(
 		box,
 		u"Funksiya ishlamasa: jurnalni nusxalab, dasturchiga yuboring. "
