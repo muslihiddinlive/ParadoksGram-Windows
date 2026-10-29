@@ -80,6 +80,7 @@ private:
 	int64 _contiguous = 0;
 	base::flat_map<int64, int64> _ahead;
 	bool _resumed = false;
+	UserId _userId = 0;
 	bool _lastComplete = false;
 	bool _paradoksResume = false;
 	int64 _nextRequestOffset = 0;

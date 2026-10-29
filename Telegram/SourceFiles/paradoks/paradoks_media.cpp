@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_debug.h"
 #include "paradoks/paradoks_privacy.h"
+#include "paradoks/paradoks_resume.h"
 #include "paradoks/paradoks_stream.h"
 #include "paradoks/paradoks_store.h"
 #include "api/api_common.h"
@@ -399,6 +400,7 @@ void InstallForSession(not_null<Main::Session*> session) {
 	}, session->lifetime());
 
 	Ads::Refresh();
+	Resume::StartForSession(session);
 
 	static auto cleaned = false;
 	if (!std::exchange(cleaned, true)) {

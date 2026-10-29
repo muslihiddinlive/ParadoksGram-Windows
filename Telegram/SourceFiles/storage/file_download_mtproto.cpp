@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_debug.h"
+#include "paradoks/paradoks_resume.h"
 
 #include "data/data_document.h"
 #include "data/data_file_origin.h"
@@ -45,6 +46,7 @@ mtpFileLoader::mtpFileLoader(
 	autoLoading,
 	cacheTag)
 , DownloadMtprotoTask(&session->downloader(), location, origin) {
+	_userId = session->userId();
 	// Big documents are downloaded with 1 MB parts (the server maximum).
 	constexpr auto kBigDocumentFrom = int64(4 * 1024 * 1024);
 	if (location.type() == StorageFileLocation::Type::Document
@@ -174,6 +176,7 @@ void mtpFileLoader::removePartFiles() {
 	}
 	QFile::remove(PartPath(_filename));
 	QFile::remove(MetaPath(_filename));
+	Paradoks::Resume::Forget(_userId, objId());
 }
 
 void mtpFileLoader::keepPartialFile() {
@@ -203,6 +206,14 @@ void mtpFileLoader::keepPartialFile() {
 			).arg(_fullSize
 			).arg(length).toUtf8());
 		meta.close();
+		const auto origin = fileOrigin();
+		if (const auto message = std::get_if<FullMsgId>(&origin.data)) {
+			Paradoks::Resume::Remember(
+				_userId,
+				*message,
+				objId(),
+				filename);
+		}
 		Paradoks::Debug::Log((u"download: kept %1 of %2 bytes for resume"_q
 			).arg(length
 			).arg(_fullSize));
@@ -380,6 +391,10 @@ void mtpFileLoader::startLoadingWithPartial(const QByteArray &data) {
 
 void mtpFileLoader::cancelHook() {
 	cancelAllRequests();
+	if (!_keepFileOnCancel && !_filename.isEmpty() && _userId.bare) {
+		// Cancelled on purpose: forget what was downloaded.
+		removePartFiles();
+	}
 }
 
 Storage::Cache::Key mtpFileLoader::cacheKey() const {

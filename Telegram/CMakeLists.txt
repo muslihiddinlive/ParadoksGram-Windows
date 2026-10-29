@@ -1713,6 +1713,8 @@ PRIVATE
     paradoks/paradoks_crash.cpp
     paradoks/paradoks_crash.h
     paradoks/paradoks_ghost.cpp
+    paradoks/paradoks_resume.cpp
+    paradoks/paradoks_resume.h
     paradoks/paradoks_ghost.h
     paradoks/paradoks_hotkey.cpp
     paradoks/paradoks_icon.cpp
