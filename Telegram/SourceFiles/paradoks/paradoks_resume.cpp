@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "data/data_document.h"
 #include "data/data_download_manager.h"
+#include "data/data_file_origin.h"
 #include "data/data_media_types.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
@@ -71,7 +72,7 @@ void Continue(
 		}
 		return;
 	}
-	document->save(item->fullId(), entry.path);
+	document->save(Data::FileOriginMessage(item->fullId()), entry.path);
 	if (document->loading()) {
 		Core::App().downloadManager().addLoading({
 			.item = item,
