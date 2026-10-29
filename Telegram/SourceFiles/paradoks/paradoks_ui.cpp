@@ -834,6 +834,17 @@ void SettingsBox(
 		box,
 		u"Telegram'dan fayl yuklab olinayotganda tezlik shu yerda "
 		"ko'rinadi. Eng yuqori qiymatni nolga tushirish uchun bosing."_q);
+	AddToggle(
+		box,
+		Flag::FinishDownloads,
+		u"Yopilganda yuklashni tugatish"_q);
+	AddText(
+		box,
+		u"Dasturdan chiqayotganingizda yuklash ketayotgan bo'lsa, oyna "
+		"yopiladi, lekin jarayon fonda yuklashni tugatadi va o'zi chiqadi. "
+		"Yana bir marta chiqishni bossangiz, yuklashni to'xtatish so'raladi. "
+		"Yuklash buzilsa, yuklangan qismi saqlanadi va keyingi urinishda "
+		"davom etadi."_q);
 
 	Ui::AddSkip(container);
 	Ui::AddSubsectionTitle(container, rpl::single(u"Ovoz effekti"_q));

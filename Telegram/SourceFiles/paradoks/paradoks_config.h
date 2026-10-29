@@ -27,6 +27,7 @@ enum class Flag : uchar {
 	RestoreBackupMedia,
 	RecordStreams,
 	OwnAds,
+	FinishDownloads,
 
 	kCount,
 };

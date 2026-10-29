@@ -156,6 +156,9 @@ Application *Application::Instance = nullptr;
 const char kOptionSkipUrlSchemeRegister[] = "skip-url-scheme-register";
 
 struct Application::Private {
+	// ParadoksGram: finish downloads in the background before quitting.
+	rpl::lifetime finishDownloadsLifetime;
+	bool finishingDownloads = false;
 	base::Timer quitTimer;
 	UiIntegration uiIntegration;
 	Settings settings;
@@ -1185,6 +1188,23 @@ bool Application::uploadPreventsQuit() {
 
 bool Application::downloadPreventsQuit() {
 	if (_downloadManager->loadingInProgress()) {
+		if (!_private->finishingDownloads
+			&& Paradoks::Enabled(Paradoks::Flag::FinishDownloads)) {
+			// Minimize the windows, the downloads continue and the
+			// application quits itself when the last one is finished.
+			_private->finishingDownloads = true;
+			for (const auto &[id, controller] : _windows) {
+				controller->minimize();
+			}
+			_downloadManager->loadingListChanges(
+			) | rpl::on_next([=] {
+				if (!_downloadManager->loadingInProgress()) {
+					_private->finishingDownloads = false;
+					Quit();
+				}
+			}, _private->finishDownloadsLifetime);
+			return true;
+		}
 		_downloadManager->loadingStopWithConfirmation([=] { Quit(); });
 		return true;
 	}
