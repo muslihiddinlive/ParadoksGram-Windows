@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "data/data_channel.h"
 #include "data/data_document.h"
+#include "data/data_file_origin.h"
 #include "data/data_histories.h"
 #include "data/data_media_types.h"
 #include "data/data_peer.h"
@@ -305,9 +306,7 @@ void DoFindApk(
 		// Start the download and wait for it, like the Android agent does.
 		document->save(
 			Data::FileOriginMessage(item->fullId()),
-			QString(),
-			LoadFromCloudSetting::FromCloud,
-			false);
+			QString());
 	}
 	struct Wait {
 		base::Timer timer;

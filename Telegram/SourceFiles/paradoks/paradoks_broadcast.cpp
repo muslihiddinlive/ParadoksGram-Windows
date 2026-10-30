@@ -567,7 +567,7 @@ void MainBox(
 			return;
 		}
 		FileDialog::GetOpenPath(
-			box,
+			QPointer<QWidget>(box.get()),
 			u"Faylni tanlang"_q,
 			QString(),
 			crl::guard(box, [=](FileDialog::OpenResult &&result) {
