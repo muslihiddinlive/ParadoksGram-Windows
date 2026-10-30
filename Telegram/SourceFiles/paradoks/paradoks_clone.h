@@ -22,4 +22,7 @@ void Start(
 	not_null<Window::SessionController*> controller,
 	not_null<PeerData*> peer);
 
+// The list of finished and running clones ("Klonlangan chatlar").
+void ShowList(not_null<Window::SessionController*> controller);
+
 } // namespace Paradoks::Clone

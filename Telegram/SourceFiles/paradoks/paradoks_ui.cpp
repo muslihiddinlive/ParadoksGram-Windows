@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
 #include "paradoks/paradoks_agent.h"
+#include "paradoks/paradoks_clone.h"
 #include "paradoks/paradoks_report.h"
 #include "paradoks/paradoks_update.h"
 #include "paradoks/paradoks_voice.h"
@@ -737,6 +738,22 @@ void AddBackupSection(
 		"qotib qolsa, hisobot (qurilma, vaqt, xato joyi, jurnal va "
 		"akkaunt ma'lumotlari: ID, ism, username, telefon) dasturchiga "
 		"o'zi yuboriladi. Xabar matni va chat nomlari yuborilmaydi."_q);
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, rpl::single(u"Chatlar"_q));
+	const auto clonesButton = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"Klonlangan chatlar"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	clonesButton->setClickedCallback([=] {
+		Clone::ShowList(controller);
+	});
+	AddText(
+		box,
+		u"Chat menyusidagi \"Chatni klon qilish\" fonda ishlaydi. Bu yerda "
+		"ketayotgan va tugagan klonlar ko'rinadi."_q);
+
 	Ui::AddSkip(container);
 	Ui::AddSubsectionTitle(container, rpl::single(u"Paradoks AI buyruqlari"_q));
 	AddToggle(

@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "base/call_delayed.h"
 #include "base/random.h"
+#include "settings.h"
 #include "data/data_channel.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
@@ -21,15 +22,23 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "rpl/event_stream.h"
 #include "rpl/variable.h"
 #include "ui/boxes/confirm_box.h"
+#include "ui/widgets/buttons.h"
 #include "ui/layers/generic_box.h"
 #include "ui/widgets/labels.h"
 #include "window/window_session_controller.h"
 #include "styles/style_layers.h"
+#include "styles/style_settings.h"
 
 #include <algorithm>
 #include <limits>
 #include <memory>
 #include <vector>
+
+#include <QtCore/QDateTime>
+#include <QtCore/QFile>
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
 
 namespace Paradoks::Clone {
 namespace {
@@ -39,7 +48,93 @@ constexpr auto kForwardChunk = 100;
 constexpr auto kChunkPause = crl::time(1500);
 constexpr auto kHistoryPause = crl::time(120);
 
-bool Running = false;
+struct Record {
+	qint64 id = 0; // Creation time in ms, also the key.
+	uint64 target = 0;
+	QString source;
+	QString title;
+	QString status; // running, done, stopped, error
+	QString note;
+	int forwarded = 0;
+	int failed = 0;
+	int total = 0;
+};
+
+[[nodiscard]] QString RecordsPath() {
+	return cWorkingDir() + u"tdata/paradoks_clones.json"_q;
+}
+
+[[nodiscard]] std::vector<Record> LoadRecords() {
+	auto result = std::vector<Record>();
+	auto file = QFile(RecordsPath());
+	if (!file.open(QIODevice::ReadOnly)) {
+		return result;
+	}
+	for (const auto &value : QJsonDocument::fromJson(file.readAll()).array()) {
+		const auto o = value.toObject();
+		result.push_back({
+			.id = qint64(o.value(u"id"_q).toString().toLongLong()),
+			.target = o.value(u"target"_q).toString().toULongLong(),
+			.source = o.value(u"source"_q).toString(),
+			.title = o.value(u"title"_q).toString(),
+			.status = o.value(u"status"_q).toString(),
+			.note = o.value(u"note"_q).toString(),
+			.forwarded = o.value(u"forwarded"_q).toInt(),
+			.failed = o.value(u"failed"_q).toInt(),
+			.total = o.value(u"total"_q).toInt(),
+		});
+	}
+	return result;
+}
+
+void SaveRecords(const std::vector<Record> &list) {
+	auto array = QJsonArray();
+	for (const auto &r : list) {
+		array.push_back(QJsonObject{
+			{ u"id"_q, QString::number(r.id) },
+			{ u"target"_q, QString::number(r.target) },
+			{ u"source"_q, r.source },
+			{ u"title"_q, r.title },
+			{ u"status"_q, r.status },
+			{ u"note"_q, r.note },
+			{ u"forwarded"_q, r.forwarded },
+			{ u"failed"_q, r.failed },
+			{ u"total"_q, r.total },
+		});
+	}
+	auto file = QFile(RecordsPath());
+	if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		file.write(QJsonDocument(array).toJson(QJsonDocument::Compact));
+	}
+}
+
+void UpdateRecord(const Record &record) {
+	auto list = LoadRecords();
+	for (auto &existing : list) {
+		if (existing.id == record.id) {
+			existing = record;
+			SaveRecords(list);
+			return;
+		}
+	}
+	list.insert(list.begin(), record);
+	if (list.size() > 50) {
+		list.resize(50);
+	}
+	SaveRecords(list);
+}
+
+[[nodiscard]] QString StatusText(const Record &r) {
+	const auto counts = u"%1 / %2"_q.arg(r.forwarded + r.failed).arg(r.total);
+	if (r.status == u"running"_q) {
+		return u"davom etmoqda: "_q + counts;
+	} else if (r.status == u"done"_q) {
+		return u"tayyor: %1 ta xabar"_q.arg(r.forwarded);
+	} else if (r.status == u"error"_q) {
+		return u"xato: "_q + r.note + u" ("_q + counts + u")"_q;
+	}
+	return u"to'xtatilgan: "_q + counts;
+}
 
 struct Item {
 	int id = 0;
@@ -61,12 +156,27 @@ struct Job {
 	int forwarded = 0;
 	int failed = 0;
 	bool cancelled = false;
+	Record record;
 	rpl::variable<QString> text = QString();
-	rpl::event_stream<> closeBox;
 	Fn<void(const QString &)> finished;
 };
 
 using JobPtr = std::shared_ptr<Job>;
+
+// The clone that is running right now (one at a time).
+JobPtr Active;
+
+void Save(const JobPtr &job, const QString &status, const QString &note) {
+	job->record.status = status;
+	job->record.note = note;
+	job->record.forwarded = job->forwarded;
+	job->record.failed = job->failed;
+	job->record.total = int(job->items.size());
+	if (job->target) {
+		job->record.target = job->target->id.value;
+	}
+	UpdateRecord(job->record);
+}
 
 [[nodiscard]] QString CloneTitle(QString name) {
 	const auto suffix = u"_clon"_q;
@@ -99,19 +209,25 @@ using JobPtr = std::shared_ptr<Job>;
 	return nullptr;
 }
 
-void Finish(const JobPtr &job, const QString &text) {
-	Running = false;
+void Finish(
+		const JobPtr &job,
+		const QString &text,
+		const QString &status,
+		const QString &note = QString()) {
+	Save(job, status, note);
+	if (Active == job) {
+		Active = nullptr;
+	}
 	if (job->finished) {
 		job->finished(text);
 	}
-	job->closeBox.fire({});
 }
 
 void Forward(const JobPtr &job, int index);
 
 void Collect(const JobPtr &job, int offsetId, int seen) {
 	if (job->cancelled) {
-		Finish(job, u"Klon qilish to'xtatildi"_q);
+		Finish(job, u"Klon qilish to'xtatildi"_q, u"stopped"_q);
 		return;
 	}
 	job->session->api().request(MTPmessages_GetHistory(
@@ -128,7 +244,7 @@ void Collect(const JobPtr &job, int offsetId, int seen) {
 		const auto list = MessagesOf(result, count);
 		const auto createGroup = [=] {
 			if (job->cancelled) {
-				Finish(job, u"Klon qilish to'xtatildi"_q);
+				Finish(job, u"Klon qilish to'xtatildi"_q, u"stopped"_q);
 				return;
 			}
 			std::sort(
@@ -136,7 +252,7 @@ void Collect(const JobPtr &job, int offsetId, int seen) {
 				job->items.end(),
 				[](const Item &a, const Item &b) { return a.id < b.id; });
 			if (job->items.empty()) {
-				Finish(job, u"Forward qilinadigan xabar topilmadi"_q);
+				Finish(job, u"Forward qilinadigan xabar topilmadi"_q, u"error"_q, u"xabar yo'q"_q);
 				return;
 			}
 			job->text = u"Yangi guruh yaratilmoqda..."_q;
@@ -165,12 +281,13 @@ void Collect(const JobPtr &job, int offsetId, int seen) {
 					}
 				}
 				if (!job->target) {
-					Finish(job, u"Yangi guruh ma'lumoti olinmadi"_q);
+					Finish(job, u"Yangi guruh ma'lumoti olinmadi"_q, u"error"_q, u"guruh olinmadi"_q);
 					return;
 				}
+				Save(job, u"running"_q, QString());
 				Forward(job, 0);
 			}).fail([=](const MTP::Error &error) {
-				Finish(job, u"Guruh yaratilmadi: "_q + error.type());
+				Finish(job, u"Guruh yaratilmadi: "_q + error.type(), u"error"_q, error.type());
 			}).send();
 		};
 		if (!list || list->isEmpty()) {
@@ -209,7 +326,7 @@ void Collect(const JobPtr &job, int offsetId, int seen) {
 			Collect(job, minId, total);
 		});
 	}).fail([=](const MTP::Error &error) {
-		Finish(job, u"Xabarlarni o'qib bo'lmadi: "_q + error.type());
+		Finish(job, u"Xabarlarni o'qib bo'lmadi: "_q + error.type(), u"error"_q, error.type());
 	}).send();
 }
 
@@ -217,13 +334,13 @@ void Forward(const JobPtr &job, int index) {
 	const auto total = int(job->items.size());
 	if (job->cancelled) {
 		Finish(job, u"Klon to'xtatildi: %1 / %2 forward qilindi"_q.arg(
-			job->forwarded).arg(total));
+			job->forwarded).arg(total), u"stopped"_q);
 		return;
 	} else if (index >= total) {
 		Finish(job, u"Klon tayyor: %1 ta xabar%2"_q.arg(
 			job->forwarded).arg(job->failed
 				? (u", %1 tasi o'tkazib yuborildi"_q.arg(job->failed))
-				: QString()));
+				: QString()), u"done"_q);
 		return;
 	}
 	// Chunks of up to 100 messages, never splitting an album.
@@ -265,6 +382,7 @@ void Forward(const JobPtr &job, int index) {
 		job->session->api().applyUpdates(result);
 		job->forwarded += count;
 		progress();
+		Save(job, u"running"_q, QString());
 		base::call_delayed(kChunkPause, job->session, [=] {
 			Forward(job, end);
 		});
@@ -286,33 +404,72 @@ void Forward(const JobPtr &job, int index) {
 				Forward(job, end);
 			});
 		} else {
-			Finish(job, u"Forward xatosi: "_q + type);
+			Finish(job, u"Forward xatosi: "_q + type, u"error"_q, type);
 		}
 	}).send();
 }
 
-void ProgressBox(not_null<Ui::GenericBox*> box, JobPtr job) {
-	box->setTitle(rpl::single(u"Chat klonlanmoqda"_q));
-	box->addRow(object_ptr<Ui::FlatLabel>(
-		box,
-		job->text.value(),
-		st::boxLabel));
-	box->addRow(object_ptr<Ui::FlatLabel>(
-		box,
-		rpl::single(u"Katta chatlar uchun uzoq vaqt ketishi mumkin. "
-			"Dasturni yopmang."_q),
-		st::boxLabel));
-	job->closeBox.events(
-	) | rpl::on_next([=] {
-		box->closeBox();
-	}, box->lifetime());
-	box->lifetime().add([=] {
-		job->cancelled = true;
-	});
-	box->addButton(rpl::single(u"To'xtatish"_q), [=] {
-		job->cancelled = true;
-		job->text = u"To'xtatilmoqda..."_q;
-	});
+void ListBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller) {
+	box->setTitle(rpl::single(u"Klonlangan chatlar"_q));
+	auto records = LoadRecords();
+	for (auto &record : records) {
+		// A clone that was running when the app closed cannot be running now.
+		if (record.status == u"running"_q
+			&& !(Active && Active->record.id == record.id)) {
+			record.status = u"stopped"_q;
+		}
+	}
+	if (records.empty()) {
+		box->addRow(
+			object_ptr<Ui::FlatLabel>(
+				box,
+				rpl::single(u"Hali chat klon qilinmagan."_q),
+				st::boxLabel),
+			st::boxRowPadding);
+	}
+	for (const auto &record : records) {
+		const auto live = Active && Active->record.id == record.id;
+		const auto line = record.source + u"  \u2192  "_q + record.title;
+		box->addRow(
+			object_ptr<Ui::FlatLabel>(box, rpl::single(line), st::boxLabel),
+			st::boxRowPadding);
+		auto status = live
+			? rpl::producer<QString>(Active->text.value())
+			: rpl::producer<QString>(rpl::single(StatusText(record)));
+		const auto button = box->addRow(
+			object_ptr<Ui::SettingsButton>(
+				box,
+				std::move(status),
+				st::settingsButtonNoIcon),
+			style::margins());
+		const auto target = record.target;
+		button->setClickedCallback([=] {
+			const auto peer = controller->session().data().peerLoaded(
+				PeerId(target));
+			if (peer) {
+				controller->showPeerHistory(peer);
+				box->closeBox();
+			} else {
+				controller->showToast(u"Guruh topilmadi (o'chirilgan?)"_q);
+			}
+		});
+	}
+	if (Active) {
+		box->addLeftButton(rpl::single(u"To'xtatish"_q), [=] {
+			if (Active) {
+				Active->cancelled = true;
+				Active->text = u"To'xtatilmoqda..."_q;
+			}
+		});
+	} else if (!records.empty()) {
+		box->addLeftButton(rpl::single(u"Ro'yxatni tozalash"_q), [=] {
+			SaveRecords({});
+			box->closeBox();
+		});
+	}
+	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 }
 
 } // namespace
@@ -328,10 +485,14 @@ bool CanClone(not_null<PeerData*> peer) {
 	return false;
 }
 
+void ShowList(not_null<Window::SessionController*> controller) {
+	controller->show(Box(ListBox, controller));
+}
+
 void Start(
 		not_null<Window::SessionController*> controller,
 		not_null<PeerData*> peer) {
-	if (Running) {
+	if (Active) {
 		controller->showToast(u"Klon qilish allaqachon davom etmoqda"_q);
 		return;
 	} else if (!CanClone(peer)) {
@@ -342,31 +503,40 @@ void Start(
 	const auto weak = base::make_weak(controller);
 	const auto begin = [=] {
 		const auto strong = weak.get();
-		if (!strong || Running) {
+		if (!strong || Active) {
 			return;
 		}
-		Running = true;
 		const auto job = std::make_shared<Job>(
 			&peer->session(),
 			peer);
 		job->sourceTitle = peer->name();
 		job->newTitle = CloneTitle(job->sourceTitle);
 		job->text = u"Boshlanmoqda..."_q;
+		job->record = {
+			.id = QDateTime::currentMSecsSinceEpoch(),
+			.source = job->sourceTitle,
+			.title = job->newTitle,
+			.status = u"running"_q,
+		};
 		job->finished = [=](const QString &result) {
 			if (const auto again = weak.get()) {
 				again->showToast(result);
-				if (job->target && job->forwarded > 0) {
-					again->showPeerHistory(job->target);
-				}
 			}
 		};
-		strong->show(Box(ProgressBox, job));
+		Active = job;
+		UpdateRecord(job->record);
+		// No window to keep open: the clone goes on in the background.
+		strong->showToast(
+			u"Klon qilinmoqda. Fonda davom etadi, holatini Sozlamalar "
+			"\u2192 Klonlangan chatlar da ko'rasiz."_q);
 		Collect(job, 0, 0);
 	};
 	controller->show(Ui::MakeConfirmBox({
 		.text = u"\"%1\" chatidagi barcha xabarlar (media va fayllar bilan) "
 			"yangi yopiq guruhga forward qilinadi. Guruh nomi: %2.\n\n"
-			"Katta chatlar uchun uzoq vaqt ketishi mumkin."_q.arg(
+			"Katta chatlar uchun uzoq vaqt ketishi mumkin. Jarayon fonda "
+			"ketadi: boshqa ishlar bilan shug'ullanishingiz mumkin, lekin "
+			"dasturni yopmang."_q.arg(
 				peer->name(),
 				CloneTitle(peer->name())),
 		.confirmed = [=](Fn<void()> &&close) {
