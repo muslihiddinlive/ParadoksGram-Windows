@@ -45,7 +45,7 @@ namespace {
 
 constexpr auto kPageLimit = 100;
 constexpr auto kForwardChunk = 100;
-constexpr auto kChunkPause = crl::time(1500);
+constexpr auto kChunkPause = crl::time(500);
 constexpr auto kHistoryPause = crl::time(120);
 
 struct Record {
@@ -125,7 +125,11 @@ void UpdateRecord(const Record &record) {
 }
 
 [[nodiscard]] QString StatusText(const Record &r) {
-	const auto counts = u"%1 / %2"_q.arg(r.forwarded + r.failed).arg(r.total);
+	const auto done = r.forwarded + r.failed;
+	const auto counts = u"%1 / %2%3"_q.arg(done).arg(r.total).arg(
+		r.total > 0
+			? (u" ("_q + QString::number(done * 100 / r.total) + u"%)"_q)
+			: QString());
 	if (r.status == u"running"_q) {
 		return u"davom etmoqda: "_q + counts;
 	} else if (r.status == u"done"_q) {
@@ -159,6 +163,8 @@ struct Job {
 	Record record;
 	rpl::variable<QString> text = QString();
 	Fn<void(const QString &)> finished;
+	Fn<void(const QString &)> milestone;
+	int lastMilestone = 0;
 };
 
 using JobPtr = std::shared_ptr<Job>;
@@ -359,8 +365,17 @@ void Forward(const JobPtr &job, int index) {
 	}
 	const auto count = end - index;
 	const auto progress = [=] {
-		job->text = u"Forward qilinmoqda: %1 / %2"_q.arg(
-			job->forwarded + job->failed).arg(total);
+		const auto done = job->forwarded + job->failed;
+		const auto percent = (total > 0) ? (done * 100 / total) : 0;
+		job->text = u"Forward qilinmoqda: %1 / %2 (%3%)"_q.arg(
+			done).arg(total).arg(percent);
+		if (percent / 10 > job->lastMilestone / 10 && percent < 100) {
+			job->lastMilestone = percent;
+			if (job->milestone) {
+				job->milestone(u"Klon: %1% tayyor (%2 / %3)"_q.arg(
+					percent / 10 * 10).arg(done).arg(total));
+			}
+		}
 	};
 	job->session->api().request(MTPmessages_ForwardMessages(
 		MTP_flags(0),
@@ -517,6 +532,11 @@ void Start(
 			.source = job->sourceTitle,
 			.title = job->newTitle,
 			.status = u"running"_q,
+		};
+		job->milestone = [=](const QString &text) {
+			if (const auto again = weak.get()) {
+				again->showToast(text);
+			}
 		};
 		job->finished = [=](const QString &result) {
 			if (const auto again = weak.get()) {
