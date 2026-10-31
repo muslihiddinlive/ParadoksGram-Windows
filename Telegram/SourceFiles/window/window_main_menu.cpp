@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_ai.h"
 #include "paradoks/paradoks_broadcast.h"
 #include "paradoks/paradoks_counters.h"
+#include "paradoks/paradoks_ui.h"
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_story.h"
@@ -829,6 +830,13 @@ void MainMenu::setupMenu() {
 		{ &st::menuIconSettings }
 	)->setClickedCallback([=] {
 		controller->showSettings();
+	});
+
+	addAction(
+		rpl::single(u"ParadoksGram sozlamalari"_q),
+		{ &st::menuIconSettings }
+	)->setClickedCallback([=] {
+		controller->show(Box(Paradoks::SettingsBox, controller));
 	});
 
 	const auto ghost = addAction(

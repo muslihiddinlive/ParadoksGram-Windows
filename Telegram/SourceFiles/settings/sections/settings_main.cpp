@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/sections/settings_main.h"
 
+#include "paradoks/paradoks_ui.h"
+
 #include "settings/settings_common_session.h"
 
 #include "api/api_cloud_password.h"
@@ -472,6 +474,16 @@ void BuildSectionButtons(SectionBuilder &builder) {
 			Guard = LanguageBox::Show(controller);
 		},
 		.keywords = { u"translate"_q, u"localization"_q, u"language"_q },
+	});
+
+	builder.addButton({
+		.id = u"main/paradoks"_q,
+		.title = rpl::single(u"ParadoksGram"_q),
+		.icon = { &st::menuIconEmojiObjects },
+		.onClick = [=] {
+			controller->show(Box(Paradoks::SettingsBox, controller));
+		},
+		.keywords = { u"paradoksgram"_q, u"ghost"_q, u"deleted"_q, u"id"_q },
 	});
 }
 
