@@ -18,8 +18,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace Paradoks::Pin {
 namespace {
@@ -334,6 +336,217 @@ void BuildPinScreen(
 			}
 		}
 	}, box->lifetime());
+}
+
+void BuildPatternScreen(
+		not_null<Ui::GenericBox*> box,
+		const QString &title,
+		const QString &subtitle,
+		Fn<bool(const QString&)> validate,
+		Fn<void(const QString&)> done) {
+	struct Drawing {
+		std::vector<int> path;
+		QPoint current;
+		bool active = false;
+		QString first;
+		QString title;
+		QString subtitle;
+		QString initialTitle;
+	};
+	constexpr auto kPatternPitch = 96;
+	constexpr auto kPatternTop = 290;
+	constexpr auto kPatternHit = 34;
+	constexpr auto kPatternMin = 4;
+
+	box->setWidth(kWidth);
+	box->setNoContentMargin(true);
+	const auto widget = box->addRow(
+		object_ptr<Ui::RpWidget>(box),
+		style::margins());
+	widget->resize(kWidth, kHeight);
+	widget->setMouseTracking(true);
+
+	const auto state = std::make_shared<Drawing>();
+	state->title = state->initialTitle = title;
+	state->subtitle = subtitle;
+
+	const auto dotCenter = [](int width, int index) {
+		return QPoint(
+			width / 2 + (index % 3 - 1) * kPatternPitch,
+			kPatternTop + (index / 3) * kPatternPitch);
+	};
+	const auto dotAt = [=](int width, QPoint point) {
+		for (auto i = 0; i != 9; ++i) {
+			const auto delta = point - dotCenter(width, i);
+			if (delta.x() * delta.x() + delta.y() * delta.y()
+				<= kPatternHit * kPatternHit) {
+				return i;
+			}
+		}
+		return -1;
+	};
+	const auto contains = [=](int index) {
+		return std::find(
+			state->path.begin(),
+			state->path.end(),
+			index) != state->path.end();
+	};
+	const auto addDot = [=](int index) {
+		if (index < 0 || contains(index)) {
+			return;
+		}
+		if (!state->path.empty()) {
+			// A line over a dot that was not touched takes that dot too.
+			const auto last = state->path.back();
+			const auto lastRow = last / 3;
+			const auto lastColumn = last % 3;
+			const auto row = index / 3;
+			const auto column = index % 3;
+			if (std::abs(lastRow - row) % 2 == 0
+				&& std::abs(lastColumn - column) % 2 == 0) {
+				const auto middle = ((lastRow + row) / 2) * 3
+					+ (lastColumn + column) / 2;
+				if (!contains(middle)) {
+					state->path.push_back(middle);
+				}
+			}
+		}
+		state->path.push_back(index);
+	};
+	const auto finish = [=](const QString &code) {
+		auto callback = done;
+		box->closeBox();
+		if (callback) {
+			callback(code);
+		}
+	};
+	const auto submit = [=] {
+		auto code = QString();
+		for (const auto index : state->path) {
+			code += QString::number(index);
+		}
+		state->path.clear();
+		widget->update();
+		if (code.size() < kPatternMin) {
+			state->subtitle = u"Kamida 4 ta nuqtani ulang"_q;
+			return;
+		}
+		if (!validate) {
+			if (state->first.isEmpty()) {
+				state->first = code;
+				state->title = u"Chizmani takrorlang"_q;
+				state->subtitle = u"Xuddi shu chizmani yana bir marta chizing"_q;
+			} else if (state->first == code) {
+				finish(code);
+			} else {
+				state->first.clear();
+				state->title = state->initialTitle;
+				state->subtitle = u"Chizmalar mos kelmadi, qaytadan chizing"_q;
+			}
+			return;
+		}
+		const auto now = QDateTime::currentMSecsSinceEpoch();
+		if (now < BlockedUntil) {
+			state->subtitle
+				= u"Juda ko'p xato urinish. %1 soniyadan keyin urinib ko'ring"_q.arg(
+					std::max<qint64>(1, (BlockedUntil - now + 999) / 1000));
+		} else if (validate(code)) {
+			Fails = 0;
+			finish(code);
+		} else if (++Fails >= kMaxFails) {
+			Fails = 0;
+			BlockedUntil = now + kCooldown;
+			state->subtitle
+				= u"Juda ko'p xato urinish. 30 soniyadan keyin urinib ko'ring"_q;
+		} else {
+			state->subtitle
+				= u"Chizma noto'g'ri. Qolgan urinishlar: %1"_q.arg(
+					kMaxFails - Fails);
+		}
+	};
+
+	widget->paintRequest(
+	) | rpl::on_next([=] {
+		auto p = QPainter(widget);
+		p.setRenderHint(QPainter::Antialiasing);
+		const auto w = widget->width();
+		auto gradient = QLinearGradient(0, 0, 0, kHeight);
+		gradient.setColorAt(0., QColor(10, 16, 28));
+		gradient.setColorAt(1., QColor(27, 38, 56));
+		p.fillRect(widget->rect(), gradient);
+
+		const auto cx = w / 2;
+		p.setPen(QPen(Qt::white, 4));
+		p.setBrush(Qt::NoBrush);
+		p.drawArc(QRect(cx - 11, 40, 22, 28), 0, 180 * 16);
+		p.setPen(Qt::NoPen);
+		p.setBrush(Qt::white);
+		p.drawRoundedRect(QRect(cx - 17, 56, 34, 28), 5, 5);
+		p.setBrush(QColor(27, 38, 56));
+		p.drawEllipse(QPoint(cx, 68), 4, 4);
+
+		p.setPen(Qt::white);
+		SetPixelSize(p, 20, true);
+		p.drawText(
+			QRect(24, 112, w - 48, 30),
+			Qt::AlignHCenter | Qt::AlignVCenter,
+			state->title);
+		p.setPen(QColor(255, 255, 255, 204));
+		SetPixelSize(p, 14, false);
+		p.drawText(
+			QRect(24, 146, w - 48, 44),
+			Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap,
+			state->subtitle);
+
+		// Lines between the chosen dots, and to the mouse.
+		p.setPen(QPen(
+			QColor(70, 140, 255, 220),
+			6,
+			Qt::SolidLine,
+			Qt::RoundCap,
+			Qt::RoundJoin));
+		for (auto i = 1; i < int(state->path.size()); ++i) {
+			p.drawLine(
+				dotCenter(w, state->path[i - 1]),
+				dotCenter(w, state->path[i]));
+		}
+		if (state->active && !state->path.empty()) {
+			p.drawLine(dotCenter(w, state->path.back()), state->current);
+		}
+		for (auto i = 0; i != 9; ++i) {
+			const auto chosen = contains(i);
+			const auto center = dotCenter(w, i);
+			p.setPen(Qt::NoPen);
+			p.setBrush(chosen
+				? QColor(70, 140, 255)
+				: QColor(255, 255, 255, 51));
+			p.drawEllipse(center, chosen ? 22 : 18, chosen ? 22 : 18);
+			p.setBrush(Qt::white);
+			p.drawEllipse(center, 7, 7);
+		}
+	}, widget->lifetime());
+
+	widget->events(
+	) | rpl::on_next([=](not_null<QEvent*> e) {
+		const auto type = e->type();
+		if (type == QEvent::MouseButtonPress) {
+			const auto event = static_cast<QMouseEvent*>(e.get());
+			state->path.clear();
+			state->active = true;
+			state->current = event->pos();
+			addDot(dotAt(widget->width(), event->pos()));
+			widget->update();
+		} else if (type == QEvent::MouseMove && state->active) {
+			const auto event = static_cast<QMouseEvent*>(e.get());
+			state->current = event->pos();
+			addDot(dotAt(widget->width(), event->pos()));
+			widget->update();
+		} else if (type == QEvent::MouseButtonRelease && state->active) {
+			state->active = false;
+			submit();
+			widget->update();
+		}
+	}, widget->lifetime());
 }
 
 } // namespace Paradoks::Pin

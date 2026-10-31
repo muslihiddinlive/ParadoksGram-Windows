@@ -24,4 +24,13 @@ void BuildPinScreen(
 	Fn<bool(const QString&)> validate,
 	Fn<void(const QString&)> done);
 
+// The same screen with a 3x3 dot grid: the code is drawn with the mouse.
+// The code is the dot numbers in order ("01258"), at least 4 dots.
+void BuildPatternScreen(
+	not_null<Ui::GenericBox*> box,
+	const QString &title,
+	const QString &subtitle,
+	Fn<bool(const QString&)> validate,
+	Fn<void(const QString&)> done);
+
 } // namespace Paradoks::Pin

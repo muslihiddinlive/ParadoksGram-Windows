@@ -8,6 +8,9 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.8.0 (31-oktabr)
+Yashirin chatlar uchun chizma bilan kirish (PIN bilan birga ikki usul)
+
 ## 1.7.0 (31-oktabr)
 Android uslubidagi PIN ekrani (yashirin chatlar), chat hisoblagichlari, sozlamalarni zaxiralash, Ghost jadval vaqti, tezroq klon (foiz bilan)
 

@@ -43,6 +43,7 @@ struct State {
 	QString salt;
 	QString hash;
 	QString unlocked;
+	bool pattern = false; // Drawn pattern instead of a typed PIN.
 };
 
 [[nodiscard]] QString IniPath() {
@@ -63,6 +64,7 @@ struct State {
 		}
 		result.salt = settings.value(u"privacy/salt"_q).toString();
 		result.hash = settings.value(u"privacy/hash"_q).toString();
+		result.pattern = settings.value(u"privacy/pattern"_q, false).toBool();
 		return result;
 	}();
 	return state;
@@ -83,6 +85,7 @@ void Save() {
 	settings.setValue(u"privacy/locked"_q, ToList(state.locked));
 	settings.setValue(u"privacy/salt"_q, state.salt);
 	settings.setValue(u"privacy/hash"_q, state.hash);
+	settings.setValue(u"privacy/pattern"_q, state.pattern);
 	settings.sync();
 }
 
@@ -124,6 +127,7 @@ void ClearPin() {
 	auto &state = Data();
 	state.salt.clear();
 	state.hash.clear();
+	state.pattern = false;
 	state.locked.clear();
 	state.unlocked.clear();
 	Save();
@@ -135,28 +139,43 @@ void PinBox(
 		QString description,
 		Fn<bool(const QString&)> validate,
 		Fn<void()> done) {
-	Pin::BuildPinScreen(
-		box,
-		title,
-		description,
-		std::move(validate),
-		[=](const QString &) {
-			if (done) {
-				done();
-			}
-		});
+	const auto finish = [=](const QString &) {
+		if (done) {
+			done();
+		}
+	};
+	if (Data().pattern) {
+		Pin::BuildPatternScreen(
+			box,
+			title,
+			u"Chizmani chizing"_q,
+			std::move(validate),
+			finish);
+	} else {
+		Pin::BuildPinScreen(box, title, description, std::move(validate), finish);
+	}
 }
 
 void NewPinBox(
 		not_null<Ui::GenericBox*> box,
 		QString title,
-		Fn<void(const QString&)> done) {
-	Pin::BuildPinScreen(
-		box,
-		title,
-		u"Kamida 4 ta raqam kiriting va takrorlang"_q,
-		nullptr,
-		std::move(done));
+		Fn<void(const QString&)> done,
+		bool pattern) {
+	if (pattern) {
+		Pin::BuildPatternScreen(
+			box,
+			title,
+			u"Kamida 4 ta nuqtani ulab chizma chizing va takrorlang"_q,
+			nullptr,
+			std::move(done));
+	} else {
+		Pin::BuildPinScreen(
+			box,
+			title,
+			u"Kamida 4 ta raqam kiriting va takrorlang"_q,
+			nullptr,
+			std::move(done));
+	}
 }
 
 // Asks for the PIN (creating one first if there is none), then runs `done`.
@@ -172,7 +191,8 @@ void Verify(
 				SavePin(pin);
 				controller->showToast(u"PIN o'rnatildi"_q);
 				done();
-			})));
+			}),
+			false));
 		return;
 	}
 	controller->show(Box(
@@ -211,7 +231,8 @@ void ToggleLocked(
 			Fn<void(const QString&)>([=](const QString &pin) {
 				SavePin(pin);
 				ToggleLocked(controller, peer);
-			})));
+			}),
+			false));
 		return;
 	}
 	auto &state = Data();
@@ -301,8 +322,42 @@ void ManagePinBox(
 					u"Yangi PIN"_q,
 					Fn<void(const QString&)>([=](const QString &pin) {
 						SavePin(pin);
-						controller->showToast(u"PIN o'zgartirildi"_q);
-					})));
+						controller->showToast(Data().pattern
+							? u"Chizma o'zgartirildi"_q
+							: u"PIN o'zgartirildi"_q);
+					}),
+					Data().pattern));
+			})));
+	});
+
+	const auto method = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(Data().pattern
+				? u"Kirish usulini almashtirish: Chizma \u2192 PIN"_q
+				: u"Kirish usulini almashtirish: PIN \u2192 Chizma"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	method->setClickedCallback([=] {
+		const auto toPattern = !Data().pattern;
+		box->closeBox();
+		controller->show(Box(
+			PinBox,
+			u"Kirish usulini almashtirish"_q,
+			u"Davom etish uchun joriy kodni kiriting"_q,
+			Fn<bool(const QString&)>(CheckPin),
+			Fn<void()>([=] {
+				controller->show(Box(
+					NewPinBox,
+					toPattern ? u"Yangi chizma"_q : u"Yangi PIN"_q,
+					Fn<void(const QString&)>([=](const QString &code) {
+						Data().pattern = toPattern;
+						SavePin(code);
+						controller->showToast(toPattern
+							? u"Endi chizma bilan ochiladi"_q
+							: u"Endi PIN bilan ochiladi"_q);
+					}),
+					toPattern));
 			})));
 	});
 
@@ -418,7 +473,9 @@ void ShowHiddenChats(not_null<Window::SessionController*> controller) {
 bool TryOpenByPin(
 		not_null<Window::SessionController*> controller,
 		const QString &text) {
-	if (text.size() < kMinPinLength || !CheckPin(text)) {
+	if (Data().pattern
+		|| text.size() < kMinPinLength
+		|| !CheckPin(text)) {
 		return false;
 	}
 	controller->show(Box(HiddenChatsBox, controller));
@@ -433,7 +490,8 @@ void ManagePin(not_null<Window::SessionController*> controller) {
 			Fn<void(const QString&)>([=](const QString &pin) {
 				SavePin(pin);
 				controller->showToast(u"PIN o'rnatildi"_q);
-			})));
+			}),
+			false));
 		return;
 	}
 	controller->show(Box(ManagePinBox, controller));
