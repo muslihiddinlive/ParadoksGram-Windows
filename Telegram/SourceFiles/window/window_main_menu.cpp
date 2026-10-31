@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "paradoks/paradoks_ai.h"
 #include "paradoks/paradoks_broadcast.h"
+#include "paradoks/paradoks_counters.h"
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_story.h"
@@ -713,6 +714,16 @@ void MainMenu::setupMenu() {
 				{ &st::menuIconChannel })
 		)->setClickedCallback([=] {
 			Paradoks::Broadcast::Open(controller);
+		});
+
+		_menu->add(
+			CreateButtonWithIcon(
+				_menu,
+				rpl::single(u"Chat hisoblagichlari"_q),
+				st::mainMenuButton,
+				{ &st::menuIconStats })
+		)->setClickedCallback([=] {
+			Paradoks::Counters::Open(controller);
 		});
 
 		_menu->add(

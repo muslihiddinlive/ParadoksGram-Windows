@@ -1712,6 +1712,8 @@ PRIVATE
     paradoks/paradoks_backup.cpp
     paradoks/paradoks_backup.h
     paradoks/paradoks_ai.h
+    paradoks/paradoks_counters.cpp
+    paradoks/paradoks_counters.h
     paradoks/paradoks_config.cpp
     paradoks/paradoks_config.h
     paradoks/paradoks_broadcast.cpp
