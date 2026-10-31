@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_clone.h"
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_ghost.h"
+#include "paradoks/paradoks_pin.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
 #include "history/history.h"
@@ -128,107 +129,34 @@ void ClearPin() {
 	Save();
 }
 
-[[nodiscard]] not_null<Ui::PasswordInput*> AddPinField(
-		not_null<Ui::GenericBox*> box,
-		const QString &placeholder) {
-	const auto &st = st::settingLocalPasscodeInputField;
-	const auto wrap = box->addRow(
-		object_ptr<Ui::RpWidget>(box),
-		st::boxRowPadding);
-	wrap->resize(wrap->width(), st.heightMin);
-	const auto field = Ui::CreateChild<Ui::PasswordInput>(
-		wrap,
-		st,
-		rpl::single(placeholder));
-	wrap->widthValue(
-	) | rpl::on_next([=](int width) {
-		field->resize(width, field->height());
-		field->moveToLeft(0, 0);
-	}, wrap->lifetime());
-	return not_null(field);
-}
-
-[[nodiscard]] not_null<Ui::FlatLabel*> AddErrorLabel(
-		not_null<Ui::GenericBox*> box) {
-	const auto error = box->addRow(
-		object_ptr<Ui::FlatLabel>(
-			box,
-			QString(),
-			st::settingLocalPasscodeError),
-		st::boxRowPadding);
-	error->hide();
-	return error;
-}
-
 void PinBox(
 		not_null<Ui::GenericBox*> box,
 		QString title,
 		QString description,
 		Fn<bool(const QString&)> validate,
 		Fn<void()> done) {
-	box->setTitle(rpl::single(title));
-	box->addRow(object_ptr<Ui::FlatLabel>(box, description, st::boxLabel));
-	const auto field = AddPinField(box, u"PIN"_q);
-	const auto error = AddErrorLabel(box);
-	const auto submit = [=] {
-		if (validate(field->text())) {
-			box->closeBox();
+	Pin::BuildPinScreen(
+		box,
+		title,
+		description,
+		std::move(validate),
+		[=](const QString &) {
 			if (done) {
 				done();
 			}
-			return;
-		}
-		error->show();
-		error->setText(u"PIN noto'g'ri"_q);
-		field->setFocus();
-		field->showError();
-	};
-	QObject::connect(field, &Ui::MaskedInputField::submitted, submit);
-	box->addButton(rpl::single(u"OK"_q), submit);
-	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
-	box->setFocusCallback([=] {
-		field->setFocusFast();
-	});
+		});
 }
 
 void NewPinBox(
 		not_null<Ui::GenericBox*> box,
 		QString title,
 		Fn<void(const QString&)> done) {
-	box->setTitle(rpl::single(title));
-	box->addRow(object_ptr<Ui::FlatLabel>(
+	Pin::BuildPinScreen(
 		box,
-		u"Kamida 4 ta belgi kiriting va takrorlang."_q,
-		st::boxLabel));
-	const auto first = AddPinField(box, u"Yangi PIN"_q);
-	const auto second = AddPinField(box, u"PIN ni takrorlang"_q);
-	const auto error = AddErrorLabel(box);
-	const auto submit = [=] {
-		const auto pin = first->text();
-		if (pin.size() < kMinPinLength) {
-			error->show();
-			error->setText(u"PIN kamida 4 ta belgidan iborat bo'lsin"_q);
-			first->setFocus();
-			first->showError();
-		} else if (pin != second->text()) {
-			error->show();
-			error->setText(u"PIN lar bir xil emas"_q);
-			second->setFocus();
-			second->showError();
-		} else {
-			box->closeBox();
-			done(pin);
-		}
-	};
-	QObject::connect(first, &Ui::MaskedInputField::submitted, [=] {
-		second->setFocus();
-	});
-	QObject::connect(second, &Ui::MaskedInputField::submitted, submit);
-	box->addButton(rpl::single(u"Saqlash"_q), submit);
-	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
-	box->setFocusCallback([=] {
-		first->setFocusFast();
-	});
+		title,
+		u"Kamida 4 ta raqam kiriting va takrorlang"_q,
+		nullptr,
+		std::move(done));
 }
 
 // Asks for the PIN (creating one first if there is none), then runs `done`.
