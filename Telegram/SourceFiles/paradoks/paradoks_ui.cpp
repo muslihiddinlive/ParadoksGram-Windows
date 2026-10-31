@@ -743,7 +743,7 @@ void AddBackupSection(
 			st::settingsButtonNoIcon),
 		style::margins());
 	logButton->setClickedCallback([=] {
-		auto text = u"ParadoksGram V%1\n"_q.arg(Update::CurrentBuild())
+		auto text = u"ParadoksGram %1 (V%2)\n"_q.arg(Update::CurrentVersion()).arg(Update::CurrentBuild())
 			+ Debug::Tail();
 		QGuiApplication::clipboard()->setText(text);
 		controller->showToast(u"Jurnal nusxalandi"_q);
@@ -866,8 +866,8 @@ void SettingsBox(
 		return (available > 0)
 			? u"Yangi versiya bor: V%1. Yangilash"_q.arg(available)
 			: (Update::CurrentBuild() > 0)
-			? u"Yangilanishni tekshirish (hozir: V%1)"_q.arg(
-				Update::CurrentBuild())
+			? u"Yangilanishni tekshirish (hozir: %1, V%2)"_q.arg(
+				Update::CurrentVersion()).arg(Update::CurrentBuild())
 			: u"Yangilanish (mahalliy build, o'chiq)"_q;
 	};
 	const auto updateLabel = std::make_shared<rpl::variable<QString>>(

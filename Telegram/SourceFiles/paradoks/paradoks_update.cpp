@@ -35,6 +35,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <windows.h>
 #endif // Q_OS_WIN
 
+#ifndef PARADOKS_VERSION
+#define PARADOKS_VERSION "0.0.0"
+#endif // !PARADOKS_VERSION
+
 #ifndef PARADOKS_BUILD_NUMBER
 #define PARADOKS_BUILD_NUMBER 0
 #endif // !PARADOKS_BUILD_NUMBER
@@ -670,6 +674,10 @@ void Download(const std::shared_ptr<Job> &job, const Source &source) {
 
 int CurrentBuild() {
 	return PARADOKS_BUILD_NUMBER;
+}
+
+QString CurrentVersion() {
+	return QString::fromLatin1(PARADOKS_VERSION);
 }
 
 int AvailableBuild() {

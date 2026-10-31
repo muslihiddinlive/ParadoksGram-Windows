@@ -303,10 +303,13 @@ jobs:
           files=(ParadoksGram-Windows-x64.zip)
           if [ -f ParadoksGram-Windows-x64.7z ]; then files+=(ParadoksGram-Windows-x64.7z); fi
           if [ -f ParadoksGram-Setup.exe ]; then files+=(ParadoksGram-Setup.exe); fi
+          SRC="$TBUILD/$REPO_NAME"
+          VER=$(tr -d '[:space:]' < "$SRC/VERSION")
+          if [ -f "$SRC/changelog/$VER.md" ]; then cp "$SRC/changelog/$VER.md" release-notes.md; else printf "Kichik yaxshilanishlar va xatolar tuzatildi." > release-notes.md; fi
           gh release create "build-${{ github.run_number }}" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "ParadoksGram Windows build ${{ github.run_number }}" \
-            --notes "Commit ${GITHUB_SHA::7}" \
+            --title "ParadoksGram Windows $VER (build ${{ github.run_number }})" \
+            --notes-file release-notes.md \
             --prerelease
 
           # Fixed tag: always points at the newest build, so one URL never changes.

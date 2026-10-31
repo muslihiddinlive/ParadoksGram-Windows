@@ -122,8 +122,8 @@ constexpr auto kMaxSummary = 2500;
 	result += u"Tur: "_q + kind + u"\n"_q;
 	result += u"Qurilma: "_q + QSysInfo::prettyProductName()
 		+ u" ("_q + QSysInfo::currentCpuArchitecture() + u")\n"_q;
-	result += u"Ilova: ParadoksGram Windows V%1 (tdesktop %2)\n"_q.arg(
-		Update::CurrentBuild()).arg(QString::fromLatin1(AppVersionStr));
+	result += u"Ilova: ParadoksGram Windows %1 (V%2, tdesktop %3)\n"_q.arg(
+		Update::CurrentVersion()).arg(Update::CurrentBuild()).arg(QString::fromLatin1(AppVersionStr));
 	result += u"Vaqt: "_q
 		+ QDateTime::currentDateTime().toString(u"yyyy-MM-dd HH:mm:ss t"_q)
 		+ u" ["_q + QString::fromUtf8(QTimeZone::systemTimeZoneId()) + u"]\n"_q;

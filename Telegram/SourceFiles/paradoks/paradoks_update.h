@@ -23,6 +23,8 @@ enum class Result {
 
 // Build number baked in at compile time (0 for local builds).
 [[nodiscard]] int CurrentBuild();
+// Readable version from the VERSION file, like "1.7.0".
+[[nodiscard]] QString CurrentVersion();
 
 // Newer build found by the last check, or 0.
 [[nodiscard]] int AvailableBuild();
