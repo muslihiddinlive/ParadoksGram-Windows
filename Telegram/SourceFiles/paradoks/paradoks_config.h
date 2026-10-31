@@ -35,6 +35,7 @@ enum class Flag : uchar {
 };
 
 [[nodiscard]] bool Enabled(Flag flag);
+[[nodiscard]] QString FlagKey(Flag flag);
 void SetEnabled(Flag flag, bool value);
 
 // Master switch: all four ghost parts together (read, typing, online, stories).

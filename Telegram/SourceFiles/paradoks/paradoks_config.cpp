@@ -91,6 +91,10 @@ void EnsureLoaded() {
 
 } // namespace
 
+QString FlagKey(Flag flag) {
+	return QString::fromLatin1(kFlags[int(flag)].key);
+}
+
 bool Enabled(Flag flag) {
 	EnsureLoaded();
 	return Values[int(flag)].load();

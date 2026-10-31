@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
 #include "paradoks/paradoks_agent.h"
+#include "paradoks/paradoks_backup.h"
 #include "paradoks/paradoks_clone.h"
 #include "paradoks/paradoks_report.h"
 #include "paradoks/paradoks_update.h"
@@ -50,6 +51,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_settings.h"
 
 #include <QtCore/QFileInfo>
+#include <QtCore/QRegularExpression>
 #include <QtGui/QClipboard>
 #include <QtGui/QImage>
 #include <QtGui/QPainter>
@@ -572,6 +574,41 @@ void EditedRadarBox(
 			: u"cheklanmagan"_q);
 }
 
+[[nodiscard]] QString MinutesText(int minutes) {
+	return u"%1:%2"_q.arg(minutes / 60, 2, 10, QChar('0')).arg(
+		minutes % 60, 2, 10, QChar('0'));
+}
+
+void TimeBox(
+		not_null<Ui::GenericBox*> box,
+		const QString &title,
+		int current,
+		Fn<void(int)> save) {
+	box->setTitle(rpl::single(title));
+	const auto input = box->addRow(
+		object_ptr<Ui::InputField>(
+			box,
+			st::defaultInputField,
+			Ui::InputField::Mode::SingleLine,
+			rpl::single(u"SS:DD (masalan 22:00)"_q),
+			MinutesText(current)),
+		st::boxRowPadding);
+	box->addButton(rpl::single(u"Saqlash"_q), [=] {
+		static const auto expression = QRegularExpression(
+			u"^\\s*(\\d{1,2})\\s*[:.]\\s*(\\d{2})\\s*$"_q);
+		const auto match = expression.match(input->getLastText());
+		const auto hours = match.hasMatch() ? match.captured(1).toInt() : -1;
+		const auto minutes = match.hasMatch() ? match.captured(2).toInt() : -1;
+		if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+			input->showError();
+			return;
+		}
+		save(hours * 60 + minutes);
+		box->closeBox();
+	});
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
 void AgentServerBox(not_null<Ui::GenericBox*> box) {
 	box->setTitle(rpl::single(u"AI server manzili"_q));
 	const auto input = box->addRow(
@@ -739,6 +776,33 @@ void AddBackupSection(
 		"akkaunt ma'lumotlari: ID, ism, username, telefon) dasturchiga "
 		"o'zi yuboriladi. Xabar matni va chat nomlari yuborilmaydi."_q);
 	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, rpl::single(u"Zaxira"_q));
+	const auto exportButton = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"Sozlamalarni zaxiralash (JSON fayl)"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	exportButton->setClickedCallback([=] {
+		Backup::Export(controller);
+	});
+	const auto importButton = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			rpl::single(u"Sozlamalarni tiklash (fayldan)"_q),
+			st::settingsButtonNoIcon),
+		style::margins());
+	importButton->setClickedCallback([=] {
+		Backup::Import(controller);
+	});
+	AddText(
+		box,
+		u"Faylda faqat ParadoksGram sozlamalari bor (yoqilgan funksiyalar, "
+		"jadval, avto-tozalash, AI server). PIN, yashirin chatlar va "
+		"qurilma tokeni kirmaydi. Android zaxirasidagi yoqish/o'chirish "
+		"sozlamalari ham o'qiladi."_q);
+
+	Ui::AddSkip(container);
 	Ui::AddSubsectionTitle(container, rpl::single(u"Chatlar"_q));
 	const auto clonesButton = box->addRow(
 		object_ptr<Ui::SettingsButton>(
@@ -889,7 +953,45 @@ void SettingsBox(
 	AddToggle(
 		box,
 		Flag::GhostSchedule,
-		u"Faqat 22:00 dan 08:00 gacha ishlash"_q);
+		u"Jadval bo'yicha ishlash"_q);
+	const auto schedule = box->lifetime().make_state<
+		rpl::variable<QString>>(
+			u"Boshlanish vaqti: "_q + MinutesText(GhostScheduleStart()));
+	const auto scheduleEnd = box->lifetime().make_state<
+		rpl::variable<QString>>(
+			u"Tugash vaqti: "_q + MinutesText(GhostScheduleEnd()));
+	const auto startButton = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			schedule->value(),
+			st::settingsButtonNoIcon),
+		style::margins());
+	startButton->setClickedCallback([=] {
+		controller->show(Box(
+			TimeBox,
+			u"Boshlanish vaqti"_q,
+			GhostScheduleStart(),
+			Fn<void(int)>([=](int minutes) {
+				SetGhostSchedule(minutes, GhostScheduleEnd());
+				*schedule = u"Boshlanish vaqti: "_q + MinutesText(minutes);
+			})));
+	});
+	const auto endButton = box->addRow(
+		object_ptr<Ui::SettingsButton>(
+			box,
+			scheduleEnd->value(),
+			st::settingsButtonNoIcon),
+		style::margins());
+	endButton->setClickedCallback([=] {
+		controller->show(Box(
+			TimeBox,
+			u"Tugash vaqti"_q,
+			GhostScheduleEnd(),
+			Fn<void(int)>([=](int minutes) {
+				SetGhostSchedule(GhostScheduleStart(), minutes);
+				*scheduleEnd = u"Tugash vaqti: "_q + MinutesText(minutes);
+			})));
+	});
 
 	Ui::AddSkip(container);
 	Ui::AddSubsectionTitle(container, rpl::single(u"Ilova ikonkasi"_q));
