@@ -19,6 +19,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_basic.h"
 #include "styles/style_layers.h"
 
+#include <algorithm>
+#include <array>
+
 #include <QtCore/QBuffer>
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDir>
@@ -37,10 +40,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Paradoks::AppIcon {
 namespace {
 
-constexpr auto kTileWidth = 62;
+constexpr auto kTileWidth = 84;
+constexpr auto kTileHeight = 108;
 constexpr auto kTileGap = 6;
-constexpr auto kPictureSize = 48;
-constexpr auto kPickerHeight = 92;
+constexpr auto kPictureSize = 60;
 
 [[nodiscard]] QString Title(int variant) {
 	switch (variant) {
@@ -247,61 +250,112 @@ void PickerBox(not_null<Ui::GenericBox*> box) {
 	const auto widget = box->addRow(
 		object_ptr<Ui::RpWidget>(box),
 		st::boxRowPadding);
-	widget->resize(widget->width(), kPickerHeight);
+	widget->resize(widget->width(), kTileHeight);
 	widget->setMouseTracking(true);
 
 	struct State {
 		int selected = 0;
 		int hovered = -1;
+		int columns = 1;
 	};
 	const auto state = widget->lifetime().make_state<State>();
 	state->selected = Current();
 
-	const auto tileAt = [=](QPoint point) {
-		const auto total = kVariants * kTileWidth
-			+ (kVariants - 1) * kTileGap;
+	// The grid wraps into rows, the box scrolls when there are many icons.
+	const auto layout = [=](int width) {
+		state->columns = std::max(
+			1,
+			(width + kTileGap) / (kTileWidth + kTileGap));
+		const auto rows = (kVariants + state->columns - 1) / state->columns;
+		widget->resize(
+			width,
+			rows * kTileHeight + (rows - 1) * kTileGap);
+	};
+	const auto tileRect = [=](int index) {
+		const auto total = state->columns * kTileWidth
+			+ (state->columns - 1) * kTileGap;
 		const auto left = (widget->width() - total) / 2;
+		const auto row = index / state->columns;
+		const auto column = index % state->columns;
+		return QRect(
+			left + column * (kTileWidth + kTileGap),
+			row * (kTileHeight + kTileGap),
+			kTileWidth,
+			kTileHeight);
+	};
+	const auto tileAt = [=](QPoint point) {
 		for (auto i = 0; i != kVariants; ++i) {
-			const auto x = left + i * (kTileWidth + kTileGap);
-			if (QRect(x, 0, kTileWidth, kPickerHeight).contains(point)) {
+			if (tileRect(i).contains(point)) {
 				return i;
 			}
 		}
 		return -1;
 	};
+	widget->widthValue(
+	) | rpl::on_next([=](int width) {
+		layout(width);
+		widget->update();
+	}, widget->lifetime());
 
 	widget->paintRequest(
 	) | rpl::on_next([=] {
 		auto p = QPainter(widget);
 		auto hq = PainterHighQualityEnabler(p);
-		const auto total = kVariants * kTileWidth
-			+ (kVariants - 1) * kTileGap;
-		const auto left = (widget->width() - total) / 2;
 		for (auto i = 0; i != kVariants; ++i) {
-			const auto x = left + i * (kTileWidth + kTileGap);
-			const auto tile = QRect(x, 0, kTileWidth, kPickerHeight);
+			const auto tile = tileRect(i);
 			const auto selected = (state->selected == i);
 			if (selected) {
 				p.setPen(QPen(st::activeButtonBg, 2));
 				p.setBrush(Qt::NoBrush);
-				p.drawRoundedRect(tile.adjusted(1, 1, -1, -1), 10, 10);
+				p.drawRoundedRect(tile.adjusted(1, 1, -1, -1), 12, 12);
 			} else if (state->hovered == i) {
 				p.setPen(QPen(st::windowSubTextFg, 1));
 				p.setBrush(Qt::NoBrush);
-				p.drawRoundedRect(tile.adjusted(1, 1, -1, -1), 10, 10);
+				p.drawRoundedRect(tile.adjusted(1, 1, -1, -1), 12, 12);
 			}
 			const auto picture = QRect(
-				x + (kTileWidth - kPictureSize) / 2,
-				8,
+				tile.x() + (kTileWidth - kPictureSize) / 2,
+				tile.y() + 12,
 				kPictureSize,
 				kPictureSize);
 			p.drawImage(picture, Picture(i));
+			if (selected) {
+				// A check mark badge, like in the Telegram app.
+				const auto badge = QRect(
+					picture.right() - 12,
+					picture.bottom() - 12,
+					20,
+					20);
+				p.setPen(QPen(st::boxBg, 2));
+				p.setBrush(st::activeButtonBg);
+				p.drawEllipse(badge);
+				p.setPen(QPen(
+					st::activeButtonFg,
+					2,
+					Qt::SolidLine,
+					Qt::RoundCap,
+					Qt::RoundJoin));
+				p.drawLine(
+					badge.x() + 5,
+					badge.y() + 10,
+					badge.x() + 9,
+					badge.y() + 14);
+				p.drawLine(
+					badge.x() + 9,
+					badge.y() + 14,
+					badge.x() + 15,
+					badge.y() + 6);
+			}
 			p.setPen(selected ? st::activeButtonBg : st::windowFg);
 			p.setFont(st::normalFont);
 			p.drawText(
-				QRect(x, 8 + kPictureSize + 4, kTileWidth, 24),
+				QRect(
+					tile.x() + 4,
+					tile.y() + 12 + kPictureSize + 8,
+					kTileWidth - 8,
+					24),
 				Qt::AlignHCenter | Qt::AlignTop,
-				Title(i));
+				st::normalFont->elided(Title(i), kTileWidth - 8));
 		}
 	}, widget->lifetime());
 
