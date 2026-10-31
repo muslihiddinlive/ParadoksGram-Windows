@@ -5,6 +5,7 @@ a modified Telegram Desktop client.
 For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
+#include "paradoks/paradoks_clone.h"
 #include "paradoks/paradoks_media.h"
 
 #include "paradoks/paradoks_ads.h"
@@ -118,6 +119,9 @@ using Key = std::pair<uint64, int64>;
 // Incoming media that can be backed up: photos and files, no stickers,
 // no channels, no view-once media, no chats with saving restricted.
 [[nodiscard]] bool BackupEligible(not_null<HistoryItem*> item) {
+	if (Clone::IsCloneTarget(item->history()->peer->id.value)) {
+		return false;
+	}
 	if (item->out()
 		|| !item->isRegular()
 		|| item->isService()

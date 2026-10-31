@@ -22,6 +22,9 @@ void Start(
 	not_null<Window::SessionController*> controller,
 	not_null<PeerData*> peer);
 
+// True for a group created by a clone: no other feature may post into it.
+[[nodiscard]] bool IsCloneTarget(uint64 peerId);
+
 // The list of finished and running clones ("Klonlangan chatlar").
 void ShowList(not_null<Window::SessionController*> controller);
 

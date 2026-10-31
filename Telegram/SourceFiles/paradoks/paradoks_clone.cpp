@@ -34,6 +34,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <memory>
 #include <vector>
 
+#include "base/flat_set.h"
+
 #include <QtCore/QDateTime>
 #include <QtCore/QFile>
 #include <QtCore/QJsonArray>
@@ -172,6 +174,11 @@ using JobPtr = std::shared_ptr<Job>;
 // The clone that is running right now (one at a time).
 JobPtr Active;
 
+[[nodiscard]] base::flat_set<uint64> &CloneTargets() {
+	static auto result = base::flat_set<uint64>();
+	return result;
+}
+
 void Save(const JobPtr &job, const QString &status, const QString &note) {
 	job->record.status = status;
 	job->record.note = note;
@@ -180,8 +187,15 @@ void Save(const JobPtr &job, const QString &status, const QString &note) {
 	job->record.total = int(job->items.size());
 	if (job->target) {
 		job->record.target = job->target->id.value;
+		CloneTargets().insert(job->record.target);
 	}
 	UpdateRecord(job->record);
+}
+
+[[nodiscard]] QString AboutText(const QString &sourceTitle) {
+	const auto suffix = u"\nKlon qilingan sana: "_q
+		+ QDateTime::currentDateTime().toString(u"dd.MM.yyyy HH:mm"_q);
+	return (u"Klon: "_q + sourceTitle).left(255 - suffix.size()) + suffix;
 }
 
 [[nodiscard]] QString CloneTitle(QString name) {
@@ -265,7 +279,7 @@ void Collect(const JobPtr &job, int offsetId, int seen) {
 			job->session->api().request(MTPchannels_CreateChannel(
 				MTP_flags(MTPchannels_CreateChannel::Flag::f_megagroup),
 				MTP_string(job->newTitle),
-				MTP_string((u"Klon: "_q + job->sourceTitle).left(255)),
+				MTP_string(AboutText(job->sourceTitle)),
 				MTPInputGeoPoint(),
 				MTPstring(),
 				MTP_int(0)
@@ -498,6 +512,19 @@ bool CanClone(not_null<PeerData*> peer) {
 		return !user->isInaccessible() && peer->allowsForwarding();
 	}
 	return false;
+}
+
+bool IsCloneTarget(uint64 peerId) {
+	static const auto loaded = [] {
+		for (const auto &record : LoadRecords()) {
+			if (record.target) {
+				CloneTargets().insert(record.target);
+			}
+		}
+		return true;
+	}();
+	Q_UNUSED(loaded);
+	return peerId && CloneTargets().contains(peerId);
 }
 
 void ShowList(not_null<Window::SessionController*> controller) {
