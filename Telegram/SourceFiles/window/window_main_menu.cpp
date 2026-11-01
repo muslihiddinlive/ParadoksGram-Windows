@@ -11,6 +11,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_broadcast.h"
 #include "paradoks/paradoks_counters.h"
 #include "paradoks/paradoks_ui.h"
+#include "paradoks/paradoks_update.h"
+#include "settings/sections/settings_chat.h"
+#include "settings/sections/settings_folders.h"
+#include "window/window_session_controller_link_info.h"
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_story.h"
@@ -399,15 +403,12 @@ MainMenu::MainMenu(
 		u"Telegram Desktop"_q,
 		u"https://desktop.telegram.org"_q));
 	_telegram->setLinksTrusted();
-	// The canary version is too long for the "Version {version}" form.
+	// ParadoksGram has its own version (VERSION file) and build number.
 	_version->setMarkedText(
 		tr::link(
-			Core::BuildIsCanary
-				? currentVersionShortText()
-				: tr::lng_settings_current_version(
-					tr::now,
-					lt_version,
-					currentVersionShortText()),
+			u"ParadoksGram %1 (V%2)"_q.arg(
+				Paradoks::Update::CurrentVersion()
+			).arg(Paradoks::Update::CurrentBuild()),
 			1) // Link 1.
 		.append(QChar(' '))
 		.append(QChar(8211))
@@ -825,6 +826,29 @@ void MainMenu::setupMenu() {
 			_controller->session().supportTemplates().reload();
 		});
 	}
+	addAction(
+		rpl::single(u"Papkalar"_q),
+		{ &st::menuIconAddToFolder }
+	)->setClickedCallback([=] {
+		controller->showSettings(Settings::FoldersId());
+	});
+
+	addAction(
+		rpl::single(u"Dizayn"_q),
+		{ &st::menuIconPalette }
+	)->setClickedCallback([=] {
+		controller->showSettings(Settings::ChatId());
+	});
+
+	addAction(
+		rpl::single(u"Mavzularni yuklab olish"_q),
+		{ &st::menuIconCustomize }
+	)->setClickedCallback([=] {
+		controller->showPeerByLink(Window::PeerByLinkInfo{
+			.usernameOrId = u"themes"_q,
+		});
+	});
+
 	addAction(
 		tr::lng_menu_settings(),
 		{ &st::menuIconSettings }
