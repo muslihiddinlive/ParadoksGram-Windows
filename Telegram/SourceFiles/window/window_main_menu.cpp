@@ -411,9 +411,7 @@ MainMenu::MainMenu(
 	// ParadoksGram has its own version (VERSION file) and build number.
 	_version->setMarkedText(
 		tr::link(
-			u"ParadoksGram %1 (V%2)"_q.arg(
-				Paradoks::Update::CurrentVersion()
-			).arg(Paradoks::Update::CurrentBuild()),
+			u"ParadoksGram %1"_q.arg(Paradoks::Update::CurrentVersion()),
 			1) // Link 1.
 		.append(QChar(' '))
 		.append(QChar(8211))

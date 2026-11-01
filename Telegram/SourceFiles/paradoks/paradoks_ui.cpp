@@ -864,10 +864,10 @@ void SettingsBox(
 	const auto updateTitle = [] {
 		const auto available = Update::AvailableBuild();
 		return (available > 0)
-			? u"Yangi versiya bor: V%1. Yangilash"_q.arg(available)
+			? u"Yangi versiya bor. Yangilash"_q
 			: (Update::CurrentBuild() > 0)
-			? u"Yangilanishni tekshirish (hozir: %1, V%2)"_q.arg(
-				Update::CurrentVersion()).arg(Update::CurrentBuild())
+			? u"Yangilanishni tekshirish (hozir: %1)"_q.arg(
+				Update::CurrentVersion())
 			: u"Yangilanish (mahalliy build, o'chiq)"_q;
 	};
 	const auto updateLabel = std::make_shared<rpl::variable<QString>>(
