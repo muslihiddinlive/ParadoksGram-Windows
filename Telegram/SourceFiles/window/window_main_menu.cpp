@@ -7,9 +7,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/window_main_menu.h"
 
+#include "base/timer.h"
+#include "rpl/variable.h"
 #include "paradoks/paradoks_ai.h"
 #include "paradoks/paradoks_broadcast.h"
 #include "paradoks/paradoks_counters.h"
+#include "paradoks/paradoks_invite.h"
 #include "paradoks/paradoks_ui.h"
 #include "paradoks/paradoks_update.h"
 #include "settings/sections/settings_chat.h"
@@ -762,8 +765,24 @@ void MainMenu::setupMenu() {
 			}
 		});
 
+		const auto onlineContacts = _menu->lifetime().make_state<
+			rpl::variable<int>>(
+				Paradoks::Invite::OnlineContacts(&_controller->session()));
+		const auto onlineTimer = _menu->lifetime().make_state<base::Timer>(
+			[=] {
+				*onlineContacts = Paradoks::Invite::OnlineContacts(
+					&_controller->session());
+			});
+		onlineTimer->callEach(30 * crl::time(1000));
 		addAction(
-			tr::lng_menu_contacts(),
+			rpl::combine(
+				tr::lng_menu_contacts(),
+				onlineContacts->value()
+			) | rpl::map([](QString title, int online) {
+				return (online > 0)
+					? (title + u"  \u2022  %1 ta onlayn"_q.arg(online))
+					: title;
+			}),
 			{ &st::menuIconUserShow }
 		)->setClickedCallback([=] {
 			controller->show(PrepareContactsBox(controller));
@@ -780,7 +799,6 @@ void MainMenu::setupMenu() {
 		)->setClickedCallback([=] {
 			controller->showPeerHistory(controller->session().user());
 		});
-		const auto session = &controller->session();
 		const auto wallet = _menu->add(
 			object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
 				_menu,
@@ -793,14 +811,11 @@ void MainMenu::setupMenu() {
 			wallet->entity(),
 			tr::lng_wallet_menu(),
 			st::mainMenuButton);
-		wallet->toggleOn(session->appConfig().value(
-		) | rpl::map([=] {
-			return session->appConfig().walletAvailable();
-		}) | rpl::distinct_until_changed());
+		// Always shown, opens the @wallet mini app like on Android.
+		wallet->toggleOn(rpl::single(true));
 		wallet->finishAnimating();
 		wallet->entity()->setClickedCallback([=] {
-			controller->window().hideSettingsAndLayer();
-			Wallet::ShowWallet(session);
+			Paradoks::Invite::OpenWallet(controller);
 		});
 	} else {
 		addAction(
@@ -826,6 +841,13 @@ void MainMenu::setupMenu() {
 			_controller->session().supportTemplates().reload();
 		});
 	}
+	addAction(
+		rpl::single(u"Do'stlarni taklif qilish"_q),
+		{ &st::menuIconInvite }
+	)->setClickedCallback([=] {
+		Paradoks::Invite::Open(controller);
+	});
+
 	addAction(
 		rpl::single(u"Papkalar"_q),
 		{ &st::menuIconAddToFolder }

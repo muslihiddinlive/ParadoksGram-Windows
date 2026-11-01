@@ -1729,6 +1729,8 @@ PRIVATE
     paradoks/paradoks_resume.h
     paradoks/paradoks_ghost.h
     paradoks/paradoks_hotkey.cpp
+    paradoks/paradoks_invite.cpp
+    paradoks/paradoks_invite.h
     paradoks/paradoks_icon.cpp
     paradoks/paradoks_icon.h
     paradoks/paradoks_hotkey.h
