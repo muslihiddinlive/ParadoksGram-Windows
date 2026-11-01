@@ -17,6 +17,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_update.h"
 #include "settings/sections/settings_chat.h"
 #include "settings/sections/settings_folders.h"
+#include "data/data_chat_participant_status.h"
+#include "inline_bots/bot_attach_web_view.h"
 #include "window/window_session_controller_link_info.h"
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_privacy.h"
