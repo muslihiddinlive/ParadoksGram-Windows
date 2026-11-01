@@ -413,7 +413,8 @@ void UploadVideo(
 	prepared->filename = u"story.mp4"_q;
 	prepared->filemime = u"video/mp4"_q;
 	prepared->filesize = int64(bytes.size());
-	prepared->setFileData(bytes);
+	// The uploader reads documents from `content` (md5 is computed by it).
+	prepared->content = bytes;
 	if (!thumbBytes.isEmpty()) {
 		prepared->thumbId = base::RandomValue<uint64>();
 		prepared->thumbname = "thumb.jpg";
