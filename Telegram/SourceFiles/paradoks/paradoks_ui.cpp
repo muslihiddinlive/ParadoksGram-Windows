@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "ui/text/text_entity.h"
 #include "window/section_widget.h"
+#include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_item_components.h"
 #include "lang/lang_cloud_manager.h"
