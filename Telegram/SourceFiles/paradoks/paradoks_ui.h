@@ -36,4 +36,10 @@ void AddEditHistoryAction(
 	std::shared_ptr<Ui::Show> show,
 	not_null<HistoryItem*> item);
 
+// "Xabar xususiyatlari": ids, dates, forward info and media details.
+void AddInspectAction(
+	not_null<Ui::PopupMenu*> menu,
+	std::shared_ptr<Ui::Show> show,
+	not_null<HistoryItem*> item);
+
 } // namespace Paradoks

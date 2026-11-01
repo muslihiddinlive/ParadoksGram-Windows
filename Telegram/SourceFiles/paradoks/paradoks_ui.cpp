@@ -22,6 +22,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "base/unixtime.h"
 #include "data/data_document.h"
+#include "data/data_user.h"
+#include "data/data_peer.h"
+#include "data/data_photo.h"
 #include "data/data_media_types.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "paradoks/paradoks_media.h"
@@ -51,6 +54,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_settings.h"
 
 #include <QtCore/QFileInfo>
+#include <QtCore/QDateTime>
 #include <QtCore/QRegularExpression>
 #include <QtGui/QClipboard>
 #include <QtGui/QImage>
@@ -1200,6 +1204,150 @@ void AddEditHistoryAction(
 	const auto current = item->originalText();
 	menu->addAction(u"Tahrirlar tarixi (%1)"_q.arg(versions.size()), [=] {
 		show->showBox(Box(EditsBox, versions, current, true));
+	}, &st::menuIconInfo);
+}
+
+
+namespace {
+
+[[nodiscard]] QString YesNo(bool value) {
+	return value ? u"ha"_q : u"yo'q"_q;
+}
+
+[[nodiscard]] QString DateText(TimeId date) {
+	return date
+		? QDateTime::fromSecsSinceEpoch(date).toString(
+			u"dd.MM.yyyy HH:mm:ss"_q)
+		: u"-"_q;
+}
+
+[[nodiscard]] QString PeerLine(PeerData *peer) {
+	if (!peer) {
+		return u"-"_q;
+	}
+	auto result = u"%1 (ID %2"_q.arg(peer->name()).arg(peer->id.value);
+	if (!peer->username().isEmpty()) {
+		result += u", @"_q + peer->username();
+	}
+	return result + u")"_q;
+}
+
+[[nodiscard]] QString InspectText(not_null<HistoryItem*> item) {
+	auto lines = QStringList();
+	const auto add = [&](const QString &name, const QString &value) {
+		lines.push_back(name + u": "_q + value);
+	};
+	const auto section = [&](const QString &title) {
+		lines.push_back(QString());
+		lines.push_back(u"\u2014 "_q + title + u" \u2014"_q);
+	};
+
+	section(u"Xabar"_q);
+	add(u"ID"_q, QString::number(item->id.bare));
+	add(u"Chat"_q, PeerLine(item->history()->peer));
+	add(u"Kimdan"_q, PeerLine(item->from()));
+	add(u"Sana"_q, DateText(item->date()));
+	if (const auto edited = item->Get<HistoryMessageEdited>()) {
+		add(u"Tahrirlangan"_q, DateText(edited->date));
+	}
+	add(u"Chiquvchi"_q, YesNo(item->out()));
+	add(u"Kanal posti"_q, YesNo(item->isPost()));
+	add(u"Qadalgan"_q, YesNo(item->isPinned()));
+	add(u"Ovozsiz (silent)"_q, YesNo(item->isSilent()));
+	add(u"Rejalashtirilgan"_q, YesNo(item->isScheduled()));
+	add(u"Forward taqiqlangan"_q, YesNo(item->forbidsForward()));
+	add(u"Saqlash taqiqlangan"_q, YesNo(item->forbidsSaving()));
+	add(u"Xizmat xabari"_q, YesNo(item->isService()));
+	add(u"O'chirilgan (ParadoksGram saqlagan)"_q, YesNo(IsDeleted(item)));
+	if (item->replyToId()) {
+		add(u"Javob (xabar ID)"_q, QString::number(item->replyToId().bare));
+	}
+	if (item->topicRootId()) {
+		add(u"Mavzu (topic) ID"_q, QString::number(item->topicRootId().bare));
+	}
+	if (const auto group = item->groupId().raw()) {
+		add(u"Albom ID"_q, QString::number(group));
+	}
+	if (const auto bot = item->viaBot()) {
+		add(u"Bot orqali"_q, PeerLine(bot));
+	}
+
+	const auto text = item->originalText();
+	section(u"Matn"_q);
+	add(u"Uzunligi"_q, QString::number(text.text.size()));
+	add(u"Entity'lar"_q, QString::number(text.entities.size()));
+
+	if (const auto forwarded = item->Get<HistoryMessageForwarded>()) {
+		section(u"Forward"_q);
+		add(u"Manba"_q, forwarded->originalSender
+			? PeerLine(forwarded->originalSender)
+			: u"yashirin yuboruvchi"_q);
+		add(u"Asl sana"_q, DateText(forwarded->originalDate));
+		if (forwarded->originalId) {
+			add(u"Asl xabar ID"_q, QString::number(forwarded->originalId.bare));
+		}
+		if (forwarded->savedFromPeer) {
+			add(u"Saqlangan joyi"_q, PeerLine(forwarded->savedFromPeer));
+		}
+		add(u"Import qilingan"_q, YesNo(forwarded->imported));
+	}
+
+	if (const auto views = item->Get<HistoryMessageViews>()) {
+		section(u"Statistika"_q);
+		if (views->views.count >= 0) {
+			add(u"Ko'rishlar"_q, QString::number(views->views.count));
+		}
+		if (views->replies.count >= 0) {
+			add(u"Javoblar soni"_q, QString::number(views->replies.count));
+		}
+	}
+
+	if (const auto media = item->media()) {
+		section(u"Media"_q);
+		if (const auto document = media->document()) {
+			add(u"Fayl ID"_q, QString::number(document->id));
+			add(u"Fayl nomi"_q, document->filename());
+			add(u"Fayl formati"_q, document->mimeString());
+			add(u"Fayl hajmi"_q, u"%1 bayt"_q.arg(document->size));
+			if (!document->dimensions.isEmpty()) {
+				add(u"O'lchami"_q, u"%1x%2"_q.arg(
+					document->dimensions.width()).arg(
+					document->dimensions.height()));
+			}
+			if (document->duration() > 0) {
+				add(u"Davomiyligi"_q, u"%1 s"_q.arg(
+					document->duration() / 1000.));
+			}
+			add(u"Stiker"_q, YesNo(document->sticker() != nullptr));
+		} else if (const auto photo = media->photo()) {
+			add(u"Rasm ID"_q, QString::number(photo->id));
+		} else {
+			add(u"Turi"_q, u"boshqa (havola, so'rovnoma, joylashuv...)"_q);
+		}
+	}
+	return lines.join('\n');
+}
+
+void InspectBox(not_null<Ui::GenericBox*> box, QString text) {
+	box->setTitle(rpl::single(u"Xabar xususiyatlari"_q));
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(box, rpl::single(text), st::boxLabel),
+		st::boxRowPadding);
+	box->addButton(rpl::single(u"Nusxalash"_q), [=] {
+		QGuiApplication::clipboard()->setText(text);
+		box->showToast(u"Nusxalandi"_q);
+	});
+	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+}
+
+} // namespace
+
+void AddInspectAction(
+		not_null<Ui::PopupMenu*> menu,
+		std::shared_ptr<Ui::Show> show,
+		not_null<HistoryItem*> item) {
+	menu->addAction(u"Xabar xususiyatlari"_q, [=] {
+		show->showBox(Box(InspectBox, InspectText(item)));
 	}, &st::menuIconInfo);
 }
 

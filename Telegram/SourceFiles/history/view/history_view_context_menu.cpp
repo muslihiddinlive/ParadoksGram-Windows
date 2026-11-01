@@ -1415,6 +1415,10 @@ void AddMessageActions(
 			menu,
 			list->controller()->uiShow(),
 			request.item);
+		Paradoks::AddInspectAction(
+			menu,
+			list->controller()->uiShow(),
+			request.item);
 		Paradoks::AddSavedMediaActions(
 			menu,
 			list->controller(),
