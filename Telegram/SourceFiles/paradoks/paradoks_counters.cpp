@@ -42,8 +42,8 @@ enum { kPrivate, kBots, kGroups, kChannels, kCategories };
 	const auto filled = (max > 0)
 		? std::max(value > 0 ? 1 : 0, value * length / max)
 		: 0;
-	return QString(QChar(0x2588), filled)
-		+ QString(QChar(0x2591), length - filled);
+	return QString(filled, QChar(0x2588))
+		+ QString(length - filled, QChar(0x2591));
 }
 
 void CountersBox(
