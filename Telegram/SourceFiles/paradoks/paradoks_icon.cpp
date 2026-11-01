@@ -45,13 +45,39 @@ constexpr auto kTileHeight = 108;
 constexpr auto kTileGap = 6;
 constexpr auto kPictureSize = 60;
 
+struct IconInfo {
+	const char *title;
+	const char *file; // After "logo_256" (empty for the first one).
+};
+
+// The order here is the order in the picker, the first four are the
+// original ones. A new icon: two PNGs (logo_256_<id>.png and
+// logo_256_<id>_no_margin.png in Resources/art, both in telegram.qrc),
+// one row here and kVariants in paradoks_icon.h.
+constexpr auto kIcons = std::array<IconInfo, kVariants>{ {
+	{ "Ghost", "" },
+	{ "Telegram", "_tg" },
+	{ "Neon", "_neon" },
+	{ "Matrix", "_matrix" },
+	{ "Classic", "_classic" },
+	{ "Phantom", "_phantom" },
+	{ "Midnight", "_midnight" },
+	{ "Crimson", "_crimson" },
+	{ "Arctic", "_arctic" },
+	{ "Emerald", "_emerald" },
+	{ "Ghost Outline", "_outline" },
+	{ "Gold", "_gold" },
+	{ "Glass", "_glass" },
+	{ "Violet Neon", "_violet" },
+	{ "Matte Black", "_matte" },
+	{ "Glacier", "_glacier" },
+	{ "Lava", "_lava" },
+	{ "Pixel", "_pixel" },
+	{ "Origami", "_origami" },
+} };
+
 [[nodiscard]] QString Title(int variant) {
-	switch (variant) {
-	case 1: return u"Telegram"_q;
-	case 2: return u"Neon"_q;
-	case 3: return u"Matrix"_q;
-	}
-	return u"Ghost"_q;
+	return QString::fromUtf8(kIcons[variant].title);
 }
 
 [[nodiscard]] QImage Picture(int variant) {
@@ -228,12 +254,9 @@ int Current() {
 
 QString ResourcePath(int variant, bool noMargin) {
 	const auto suffix = noMargin ? u"_no_margin"_q : QString();
-	switch (variant) {
-	case 1: return u":/gui/art/logo_256_tg%1.png"_q.arg(suffix);
-	case 2: return u":/gui/art/logo_256_neon%1.png"_q.arg(suffix);
-	case 3: return u":/gui/art/logo_256_matrix%1.png"_q.arg(suffix);
-	}
-	return u":/gui/art/logo_256%1.png"_q.arg(suffix);
+	return u":/gui/art/logo_256%1%2.png"_q.arg(
+		QString::fromLatin1(kIcons[std::clamp(variant, 0, kVariants - 1)].file),
+		suffix);
 }
 
 void Apply(int variant) {
