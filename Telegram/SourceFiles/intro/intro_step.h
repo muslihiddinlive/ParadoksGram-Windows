@@ -226,6 +226,8 @@ private:
 	object_ptr<Ui::FadeWrap<Ui::FlatLabel>> _error = { nullptr };
 
 	Ui::Animations::Simple _a_show;
+	Ui::Animations::Simple _ghostAnimation;
+	bool _ghostStarted = false;
 	CoverAnimation _coverAnimation;
 	std::unique_ptr<Ui::SlideAnimation> _slideAnimation;
 	QPixmap _coverMask;

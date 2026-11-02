@@ -39,9 +39,116 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_intro.h"
 #include "styles/style_window.h"
 
+#include <algorithm>
+#include <iterator>
+
 namespace Intro {
 namespace details {
 namespace {
+
+struct GhostPoint {
+	float x;
+	float y;
+};
+
+constexpr GhostPoint kGhostBody[] = {
+	{ 241, 138 }, { 182, 138 }, { 156, 169 }, { 157, 238 }, { 143, 290 },
+	{ 176, 248 }, { 191, 270 }, { 206, 246 }, { 221, 270 }, { 236, 246 },
+	{ 252, 267 }, { 267, 238 }, { 267, 169 },
+};
+constexpr GhostPoint kGhostShadow1[] = {
+	{ 176, 249 }, { 163, 265 }, { 165, 267 }, { 156, 301 }, { 185, 263 },
+	{ 187, 265 },
+};
+constexpr GhostPoint kGhostShadow2[] = {
+	{ 236, 247 }, { 225, 265 }, { 234, 280 }, { 246, 261 },
+};
+constexpr GhostPoint kGhostShadow3[] = {
+	{ 206, 247 }, { 194, 267 }, { 197, 268 }, { 204, 280 }, { 214, 263 },
+	{ 216, 263 },
+};
+constexpr GhostPoint kGhostShadow4[] = {
+	{ 248, 146 }, { 268, 169 }, { 268, 238 }, { 254, 264 }, { 256, 264 },
+	{ 264, 278 }, { 280, 249 }, { 280, 178 }, { 253, 147 },
+};
+constexpr GhostPoint kGhostEyeRight[] = {
+	{ 252, 185 }, { 252, 201 }, { 250, 203 }, { 217, 214 }, { 215, 206 },
+	{ 217, 199 }, { 247, 185 },
+};
+constexpr GhostPoint kGhostEyeLeft[] = {
+	{ 171, 185 }, { 176, 185 }, { 208, 201 }, { 206, 213 }, { 202, 214 },
+	{ 171, 201 },
+};
+
+// Same timeline (in ms) as the Android splash: the ghost floats up,
+// wakes up (eyes open) and blinks.
+constexpr auto kGhostDuration = crl::time(900);
+
+[[nodiscard]] float64 GhostPart(float64 ms, float64 from, float64 length) {
+	return std::clamp((ms - from) / length, 0., 1.);
+}
+
+[[nodiscard]] float64 GhostOvershoot(float64 x) {
+	constexpr auto s = 1.3;
+	const auto y = x - 1.;
+	return 1. + (s + 1.) * y * y * y + s * y * y;
+}
+
+[[nodiscard]] float64 GhostSmooth(float64 x) {
+	return x * x * (3. - 2. * x);
+}
+
+void PaintGhost(QPainter &p, QPointF center, float64 height, float64 ms) {
+	const auto scale = height / 163.;
+	const auto rise = (1. - GhostOvershoot(GhostPart(ms, 0., 650.)))
+		* 55.;
+	const auto alpha = GhostPart(ms, 0., 300.);
+	auto eyes = GhostSmooth(GhostPart(ms, 520., 130.));
+	eyes -= GhostSmooth(GhostPart(ms, 730., 60.)) * 0.92;
+	eyes += GhostSmooth(GhostPart(ms, 790., 60.)) * 0.92;
+
+	const auto build = [&](
+			const GhostPoint *points,
+			int count,
+			float64 scaleY = 1.,
+			float64 pivotY = 0.) {
+		auto result = QPolygonF();
+		result.reserve(count);
+		for (auto i = 0; i != count; ++i) {
+			const auto y = pivotY + (points[i].y - pivotY) * scaleY;
+			result.append(QPointF(
+				center.x() + (points[i].x - 211.5) * scale,
+				center.y() + (y - 219.5) * scale + rise));
+		}
+		return result;
+	};
+
+	p.save();
+	p.setRenderHint(QPainter::Antialiasing, true);
+	p.setOpacity(p.opacity() * alpha);
+	p.setPen(Qt::NoPen);
+	p.setBrush(QColor(0x34, 0x36, 0x3e));
+	p.drawPolygon(build(kGhostShadow1, int(std::size(kGhostShadow1))));
+	p.drawPolygon(build(kGhostShadow2, int(std::size(kGhostShadow2))));
+	p.drawPolygon(build(kGhostShadow3, int(std::size(kGhostShadow3))));
+	p.drawPolygon(build(kGhostShadow4, int(std::size(kGhostShadow4))));
+	p.setBrush(QColor(0xb7, 0xbb, 0xc6));
+	p.drawPolygon(build(kGhostBody, int(std::size(kGhostBody))));
+	if (eyes > 0.01) {
+		p.setBrush(QColor(0x0b, 0x0c, 0x0f));
+		p.drawPolygon(build(
+			kGhostEyeRight,
+			int(std::size(kGhostEyeRight)),
+			eyes,
+			200.));
+		p.drawPolygon(build(
+			kGhostEyeLeft,
+			int(std::size(kGhostEyeLeft)),
+			eyes,
+			200.));
+	}
+	p.restore();
+}
 
 void PrepareSupportMode(not_null<Main::Session*> session) {
 	using ::Data::AutoDownload::Full;
@@ -430,7 +537,11 @@ void Step::prepareCoverMask() {
 	Assert(maskIntsPerLineAdded >= 0);
 	auto realHeight = static_cast<float64>(maskHeight - 1);
 	for (auto y = 0; y != maskHeight; ++y) {
-		auto color = anim::color(st::introCoverTopBg, st::introCoverBottomBg, y / realHeight);
+		const auto ratio = y / realHeight;
+		auto color = QColor(
+			int(base::SafeRound(0x0b + (0x14 - 0x0b) * ratio)),
+			int(base::SafeRound(0x0c + (0x15 - 0x0c) * ratio)),
+			int(base::SafeRound(0x0f + (0x1a - 0x0f) * ratio)));
 		auto colorInt = anim::getPremultiplied(color);
 		for (auto x = 0; x != maskWidth; ++x) {
 			*maskInts++ = colorInt;
@@ -453,37 +564,22 @@ void Step::paintCover(QPainter &p, int top) {
 				coverHeight * style::DevicePixelRatio()));
 	}
 
-	auto left = 0;
-	auto right = 0;
-	if (width() < st::introCoverMaxWidth) {
-		auto iconsMaxSkip = st::introCoverMaxWidth - st::introCoverLeft.width() - st::introCoverRight.width();
-		auto iconsSkip = st::introCoverIconsMinSkip + (iconsMaxSkip - st::introCoverIconsMinSkip) * (width() - st::introStepWidth) / (st::introCoverMaxWidth - st::introStepWidth);
-		auto outside = iconsSkip + st::introCoverLeft.width() + st::introCoverRight.width() - width();
-		left = -outside / 2;
-		right = -outside - left;
+	if (_hasCover && !_ghostStarted) {
+		_ghostStarted = true;
+		_ghostAnimation.start(
+			[this] { update(); },
+			0.,
+			1.,
+			kGhostDuration);
 	}
-	if (top < 0) {
-		auto shown = float64(coverHeight) / st::introCoverHeight;
-		const auto leftFull = left + st::introCoverLeft.width();
-		auto leftShown = int(base::SafeRound(shown * leftFull));
-		left = leftShown - st::introCoverLeft.width();
-		const auto rightFull = right + st::introCoverRight.width();
-		auto rightShown = int(base::SafeRound(shown * rightFull));
-		right = rightShown - st::introCoverRight.width();
-	}
-	st::introCoverLeft.paint(p, left, coverHeight - st::introCoverLeft.height(), width());
-	st::introCoverRight.paint(p, width() - right - st::introCoverRight.width(), coverHeight - st::introCoverRight.height(), width());
-
-	auto planeLeft = (width() - st::introCoverIcon.width()) / 2 - st::introCoverIconLeft;
-	auto planeTop = top + st::introCoverIconTop;
-	if (top < 0 && !_hasCover) {
-		const auto ratio = float64(st::introPlaneWidth / st::introPlaneHeight);
-		auto deltaLeft = -int(base::SafeRound(ratio * top));
-//		auto deltaTop = top;
-		planeLeft += deltaLeft;
-	//	planeTop += top;
-	}
-	st::introCoverIcon.paint(p, planeLeft, planeTop, width());
+	const auto ms = _hasCover
+		? (_ghostAnimation.value(1.) * kGhostDuration)
+		: float64(kGhostDuration);
+	PaintGhost(
+		p,
+		QPointF(width() / 2., top + st::introCoverHeight / 2.),
+		112.,
+		ms);
 }
 
 int Step::contentLeft() const {
