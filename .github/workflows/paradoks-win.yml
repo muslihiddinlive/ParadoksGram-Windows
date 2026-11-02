@@ -270,6 +270,14 @@ jobs:
           7z a -tzip -mx=9 -mfb=258 -mpass=15 ../ParadoksGram-Windows-x64.zip Telegram.exe
           7z a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=on ../ParadoksGram-Windows-x64.7z Telegram.exe
           ls -l ../ParadoksGram-Windows-x64.*
+          # Debug symbols: lets crash addresses (Telegram.exe+0x...) be mapped to functions.
+          pdb="${exe%.exe}.pdb"
+          if [ -f "$pdb" ]; then
+            7z a -t7z -m0=lzma2 -mx=5 -md=64m ../ParadoksGram-Symbols.7z "$pdb"
+            ls -l ../ParadoksGram-Symbols.7z
+          else
+            echo "No pdb found next to $exe"
+          fi
 
       - name: Installer.
         continue-on-error: true
@@ -304,9 +312,11 @@ jobs:
           if [ -f ParadoksGram-Windows-x64.7z ]; then files+=(ParadoksGram-Windows-x64.7z); fi
           if [ -f ParadoksGram-Setup.exe ]; then files+=(ParadoksGram-Setup.exe); fi
           SRC="$TBUILD/$REPO_NAME"
+          SYMS=""
+          if [ -f ParadoksGram-Symbols.7z ]; then SYMS=ParadoksGram-Symbols.7z; fi
           VER=$(tr -d '[:space:]' < "$SRC/VERSION")
           if [ -f "$SRC/changelog/$VER.md" ]; then cp "$SRC/changelog/$VER.md" release-notes.md; else printf "Kichik yaxshilanishlar va xatolar tuzatildi." > release-notes.md; fi
-          gh release create "build-${{ github.run_number }}" "${files[@]}" \
+          gh release create "build-${{ github.run_number }}" "${files[@]}" $SYMS \
             --repo "$GITHUB_REPOSITORY" \
             --title "ParadoksGram Windows $VER (build ${{ github.run_number }})" \
             --notes-file release-notes.md \
