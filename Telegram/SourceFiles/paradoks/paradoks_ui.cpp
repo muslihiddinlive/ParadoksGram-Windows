@@ -41,6 +41,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "ui/layers/generic_box.h"
 #include "ui/layers/show.h"
+#include "settings/settings_common.h"
+#include "ui/painter.h"
 #include "ui/vertical_list.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/fields/input_field.h"
@@ -61,6 +63,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QClipboard>
 #include <QtGui/QImage>
 #include <QtGui/QPainter>
+#include <QtGui/QPainterPath>
 #include <QtGui/QGuiApplication>
 
 namespace Paradoks {
@@ -73,16 +76,106 @@ constexpr auto kPreviewHeight = 180;
 	return base::unixtime::parse(date).toString(u"dd.MM.yyyy HH:mm"_q);
 }
 
+bool LastWasDivider = true;
+
+not_null<Settings::Button*> AddRow(
+		not_null<Ui::GenericBox*> box,
+		rpl::producer<QString> text,
+		const style::icon *icon) {
+	LastWasDivider = false;
+	return Settings::AddButtonWithIcon(
+		box->verticalLayout(),
+		std::move(text),
+		st::settingsButton,
+		Settings::IconDescriptor{ icon });
+}
+
+[[nodiscard]] const style::icon *IconForFlag(Flag flag) {
+	switch (flag) {
+	case Flag::GhostRead: return &st::menuIconMarkRead;
+	case Flag::GhostTyping: return &st::menuIconEdit;
+	case Flag::GhostOnline: return &st::menuIconWhenOnline;
+	case Flag::GhostStories: return &st::menuIconStoriesArchive;
+	case Flag::GhostSchedule: return &st::menuIconSchedule;
+	case Flag::ShowId: return &st::menuIconUsername;
+	case Flag::KeepDeleted: return &st::menuIconRestore;
+	case Flag::KeepDeletedMedia: return &st::menuIconPhoto;
+	case Flag::TrackEdits: return &st::menuIconEdit;
+	case Flag::HideSponsored: return &st::menuIconAntispam;
+	case Flag::NotifyDeleted: return &st::menuIconNotifications;
+	case Flag::PreSaveMedia: return &st::menuIconDownload;
+	case Flag::RestoreBackupMedia: return &st::menuIconRestore;
+	case Flag::RecordStreams: return &st::menuIconVideoChat;
+	case Flag::OwnAds: return &st::menuIconEarn;
+	case Flag::FinishDownloads: return &st::menuIconDownload;
+	case Flag::ErrorReports: return &st::menuIconReport;
+	case Flag::DeviceCommands: return &st::menuIconBotCommands;
+	case Flag::AdOnInteraction: return &st::menuIconReactions;
+	case Flag::HiddenInSearch: return &st::menuIconSearch;
+	default: return &st::menuIconSettings;
+	}
+}
+
+// A section: separated from the previous one by a gray band, then a title.
+void AddSection(
+		not_null<Ui::VerticalLayout*> container,
+		const QString &title) {
+	if (!LastWasDivider) {
+		Ui::AddSkip(container);
+		Ui::AddDivider(container);
+	}
+	LastWasDivider = false;
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, rpl::single(title));
+}
+
+// Logo, name and version at the top, like a profile header.
+void AddHero(not_null<Ui::VerticalLayout*> container) {
+	const auto hero = container->add(object_ptr<Ui::RpWidget>(container));
+	const auto logo = hero->lifetime().make_state<QImage>(
+		QImage(u":/gui/art/logo_256_no_margin.png"_q));
+	constexpr auto kHeroHeight = 168;
+	constexpr auto kLogoSize = 84;
+	hero->widthValue(
+	) | rpl::on_next([=](int width) {
+		hero->resize(width, kHeroHeight);
+	}, hero->lifetime());
+	hero->paintRequest(
+	) | rpl::on_next([=] {
+		auto p = QPainter(hero);
+		auto hq = PainterHighQualityEnabler(p);
+		const auto left = (hero->width() - kLogoSize) / 2;
+		auto path = QPainterPath();
+		path.addRoundedRect(
+			QRectF(left, 18, kLogoSize, kLogoSize),
+			kLogoSize * 0.24,
+			kLogoSize * 0.24);
+		p.setClipPath(path);
+		p.drawImage(QRect(left, 18, kLogoSize, kLogoSize), *logo);
+		p.setClipping(false);
+		p.setPen(st::windowFg);
+		auto big = st::semiboldFont->f;
+		big.setPixelSize(20);
+		big.setBold(true);
+		p.setFont(big);
+		p.drawText(
+			QRect(0, 18 + kLogoSize + 8, hero->width(), 28),
+			Qt::AlignHCenter | Qt::AlignVCenter,
+			u"ParadoksGram"_q);
+		p.setPen(st::windowSubTextFg);
+		p.setFont(st::normalFont);
+		p.drawText(
+			QRect(0, 18 + kLogoSize + 38, hero->width(), 20),
+			Qt::AlignHCenter | Qt::AlignVCenter,
+			u"Windows  \u2022  versiya %1"_q.arg(Update::CurrentVersion()));
+	}, hero->lifetime());
+}
+
 void AddToggle(
 		not_null<Ui::GenericBox*> box,
 		Flag flag,
 		const QString &title) {
-	const auto button = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(title),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto button = AddRow(box, rpl::single(title), IconForFlag(flag));
 	button->toggleOn(
 		rpl::single(Enabled(flag))
 	)->toggledValue() | rpl::on_next([=](bool value) {
@@ -101,12 +194,7 @@ void AddShortcutRow(
 	};
 	const auto shortcutLabel = std::make_shared<rpl::variable<QString>>(
 		shortcutTitle());
-	const auto shortcut = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			shortcutLabel->value(),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto shortcut = AddRow(box, shortcutLabel->value(), &st::menuIconShortcut);
 	shortcut->setClickedCallback([=] {
 		box->getDelegate()->show(Box(
 			Hotkey::CaptureBox,
@@ -116,7 +204,8 @@ void AddShortcutRow(
 }
 
 void AddText(not_null<Ui::GenericBox*> box, const QString &text) {
-	box->addRow(object_ptr<Ui::FlatLabel>(box, text, st::boxLabel));
+	LastWasDivider = true;
+	Ui::AddDividerText(box->verticalLayout(), rpl::single(text));
 }
 
 [[nodiscard]] QStringList SplitWords(const QString &text) {
@@ -643,8 +732,7 @@ void AddBackupSection(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller) {
 	const auto container = box->verticalLayout();
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(u"Saqlash va baza"_q));
+	AddSection(container, u"Saqlash va baza"_q);
 	AddToggle(
 		box,
 		Flag::NotifyDeleted,
@@ -671,12 +759,7 @@ void AddBackupSection(
 
 	const auto retention = box->lifetime().make_state<
 		rpl::variable<QString>>(RetentionLabel());
-	const auto retentionButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			retention->value(),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto retentionButton = AddRow(box, retention->value(), &st::menuIconTimer);
 	retentionButton->setClickedCallback([=] {
 		const auto days = IntSetting(u"media_days"_q, 0);
 		SetIntSetting(
@@ -687,12 +770,7 @@ void AddBackupSection(
 	});
 	const auto limit = box->lifetime().make_state<
 		rpl::variable<QString>>(SizeLimitLabel());
-	const auto limitButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			limit->value(),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto limitButton = AddRow(box, limit->value(), &st::menuIconStorage);
 	limitButton->setClickedCallback([=] {
 		const auto mb = IntSetting(u"media_max_mb"_q, 0);
 		SetIntSetting(
@@ -712,23 +790,13 @@ void AddBackupSection(
 	const auto target = box->lifetime().make_state<
 		rpl::variable<QString>>(
 			u"Media bazasi: "_q + DbTargetName(session));
-	const auto targetButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			target->value(),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto targetButton = AddRow(box, target->value(), &st::menuIconChannel);
 	targetButton->setClickedCallback([=] {
 		ChooseDbTarget(controller, [=] {
 			*target = u"Media bazasi: "_q + DbTargetName(session);
 		});
 	});
-	const auto clearTarget = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Media bazasini o'chirish"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto clearTarget = AddRow(box, rpl::single(u"Media bazasini o'chirish"_q), &st::menuIconDelete);
 	clearTarget->setClickedCallback([=] {
 		SetDbTarget(session, PeerId());
 		*target = u"Media bazasi: "_q + DbTargetName(session);
@@ -740,14 +808,8 @@ void AddBackupSection(
 		"Yuboruvchi o'chirsa ham nusxa qoladi. Faqat shaxsiy chat va "
 		"guruhlardagi, forward taqiqlanmagan xabarlar yuboriladi."_q);
 
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(u"Diagnostika"_q));
-	const auto logButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Diagnostika jurnalini nusxalash"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	AddSection(container, u"Diagnostika"_q);
+	const auto logButton = AddRow(box, rpl::single(u"Diagnostika jurnalini nusxalash"_q), &st::menuIconCopy);
 	logButton->setClickedCallback([=] {
 		auto text = u"ParadoksGram %1 (V%2)\n"_q.arg(Update::CurrentVersion()).arg(Update::CurrentBuild())
 			+ Debug::Tail();
@@ -758,12 +820,7 @@ void AddBackupSection(
 		box,
 		Flag::ErrorReports,
 		u"Xatolarni avtomatik yuborish"_q);
-	const auto sendButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Hato haqida xabar yuborish"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto sendButton = AddRow(box, rpl::single(u"Hato haqida xabar yuborish"_q), &st::menuIconReport);
 	sendButton->setClickedCallback([=] {
 		Report::Send(
 			&controller->session(),
@@ -781,23 +838,12 @@ void AddBackupSection(
 		"qotib qolsa, hisobot (qurilma, vaqt, xato joyi, jurnal va "
 		"akkaunt ma'lumotlari: ID, ism, username, telefon) dasturchiga "
 		"o'zi yuboriladi. Xabar matni va chat nomlari yuborilmaydi."_q);
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(u"Zaxira"_q));
-	const auto exportButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Sozlamalarni zaxiralash (JSON fayl)"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	AddSection(container, u"Zaxira"_q);
+	const auto exportButton = AddRow(box, rpl::single(u"Sozlamalarni zaxiralash (JSON fayl)"_q), &st::menuIconExport);
 	exportButton->setClickedCallback([=] {
 		Backup::Export(controller);
 	});
-	const auto importButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Sozlamalarni tiklash (fayldan)"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto importButton = AddRow(box, rpl::single(u"Sozlamalarni tiklash (fayldan)"_q), &st::menuIconRestore);
 	importButton->setClickedCallback([=] {
 		Backup::Import(controller);
 	});
@@ -808,14 +854,8 @@ void AddBackupSection(
 		"qurilma tokeni kirmaydi. Android zaxirasidagi yoqish/o'chirish "
 		"sozlamalari ham o'qiladi."_q);
 
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(u"Chatlar"_q));
-	const auto clonesButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Klonlangan chatlar"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	AddSection(container, u"Chatlar"_q);
+	const auto clonesButton = AddRow(box, rpl::single(u"Klonlangan chatlar"_q), &st::menuIconChats);
 	clonesButton->setClickedCallback([=] {
 		Clone::ShowList(controller);
 	});
@@ -824,18 +864,12 @@ void AddBackupSection(
 		u"Chat menyusidagi \"Chatni klon qilish\" fonda ishlaydi. Bu yerda "
 		"ketayotgan va tugagan klonlar ko'rinadi."_q);
 
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(u"Paradoks AI buyruqlari"_q));
+	AddSection(container, u"Paradoks AI buyruqlari"_q);
 	AddToggle(
 		box,
 		Flag::DeviceCommands,
 		u"AI bot kompyuterda amal bajarsin"_q);
-	const auto serverButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"AI server manzili"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto serverButton = AddRow(box, rpl::single(u"AI server manzili"_q), &st::menuIconBot);
 	serverButton->setClickedCallback([=] {
 		controller->show(Box(AgentServerBox));
 	});
@@ -863,9 +897,12 @@ void SettingsBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller) {
 	box->setTitle(rpl::single(u"ParadoksGram"_q));
+	box->setWidth(st::boxWideWidth);
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 
 	const auto container = box->verticalLayout();
+	LastWasDivider = true;
+	AddHero(container);
 
 	const auto updateTitle = [] {
 		const auto available = Update::AvailableBuild();
@@ -878,12 +915,7 @@ void SettingsBox(
 	};
 	const auto updateLabel = std::make_shared<rpl::variable<QString>>(
 		updateTitle());
-	const auto update = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			updateLabel->value(),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto update = AddRow(box, updateLabel->value(), &st::menuIconDownload);
 	update->setClickedCallback([=] {
 		if (Update::AvailableBuild() > 0) {
 			Update::ShowBox(controller);
@@ -901,9 +933,7 @@ void SettingsBox(
 			}
 		});
 	});
-	Ui::AddSkip(container);
-
-	Ui::AddSubsectionTitle(container, rpl::single(u"Umumiy"_q));
+	AddSection(container, u"Umumiy"_q);
 	AddToggle(box, Flag::ShowId, u"ID ni ko'rsatish"_q);
 	AddToggle(
 		box,
@@ -936,14 +966,8 @@ void SettingsBox(
 
 	AddBackupSection(box, controller);
 
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(u"Ghost mode"_q));
-	const auto master = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Ghost mode (hammasi birga)"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	AddSection(container, u"Ghost mode"_q);
+	const auto master = AddRow(box, rpl::single(u"Ghost mode (hammasi birga)"_q), &st::menuIconGhost);
 	master->toggleOn(
 		GhostAllValue()
 	)->toggledChanges(
@@ -970,12 +994,7 @@ void SettingsBox(
 	const auto scheduleEnd = box->lifetime().make_state<
 		rpl::variable<QString>>(
 			u"Tugash vaqti: "_q + MinutesText(GhostScheduleEnd()));
-	const auto startButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			schedule->value(),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto startButton = AddRow(box, schedule->value(), &st::menuIconSchedule);
 	startButton->setClickedCallback([=] {
 		controller->show(Box(
 			TimeBox,
@@ -986,12 +1005,7 @@ void SettingsBox(
 				*schedule = u"Boshlanish vaqti: "_q + MinutesText(minutes);
 			})));
 	});
-	const auto endButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			scheduleEnd->value(),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto endButton = AddRow(box, scheduleEnd->value(), &st::menuIconSchedule);
 	endButton->setClickedCallback([=] {
 		controller->show(Box(
 			TimeBox,
@@ -1003,28 +1017,16 @@ void SettingsBox(
 			})));
 	});
 
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(u"Ilova ikonkasi"_q));
-	const auto iconButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Ikonkani almashtirish (Ghost / Telegram / Neon / Matrix)"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	AddSection(container, u"Ilova ikonkasi"_q);
+	const auto iconButton = AddRow(box, rpl::single(u"Ikonkani almashtirish (Ghost / Telegram / Neon / Matrix)"_q), &st::menuIconPalette);
 	iconButton->setClickedCallback([=] {
 		controller->show(Box(Paradoks::AppIcon::PickerBox));
 	});
 
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(u"Yuklash tezligi"_q));
+	AddSection(container, u"Yuklash tezligi"_q);
 	const auto speedLabel = box->lifetime().make_state<
 		rpl::variable<QString>>(SpeedLabel());
-	const auto speedButton = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			speedLabel->value(),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto speedButton = AddRow(box, speedLabel->value(), &st::menuIconNetwork);
 	speedButton->setClickedCallback([=] {
 		ResetDownloadPeak();
 		*speedLabel = SpeedLabel();
@@ -1049,20 +1051,14 @@ void SettingsBox(
 		"Yuklash buzilsa, yuklangan qismi saqlanadi va keyingi urinishda "
 		"davom etadi."_q);
 
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(u"Ovoz effekti"_q));
+	AddSection(container, u"Ovoz effekti"_q);
 	const auto voiceTitle = [] {
 		return u"Ovozli xabar effekti: "_q
 			+ Voice::ModeTitle(Voice::CurrentMode());
 	};
 	const auto voiceLabel = box->lifetime().make_state<
 		rpl::variable<QString>>(voiceTitle());
-	const auto voice = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			voiceLabel->value(),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto voice = AddRow(box, voiceLabel->value(), &st::menuIconSoundOn);
 	voice->setClickedCallback([=] {
 		const auto next = (int(Voice::CurrentMode()) + 1)
 			% (int(Voice::Mode::Villager) + 1);
@@ -1074,23 +1070,12 @@ void SettingsBox(
 		u"Bosib Off, Robot, G'or va Minecraft Villager orasida almashtiring. "
 		"Effekt yangi yozilayotgan ovozli xabarlarga qo'llanadi."_q);
 
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(u"Maxfiylik"_q));
-	const auto hidden = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Yashirin chatlar"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	AddSection(container, u"Maxfiylik"_q);
+	const auto hidden = AddRow(box, rpl::single(u"Yashirin chatlar"_q), &st::menuIconStealth);
 	hidden->setClickedCallback([=] {
 		Paradoks::ShowHiddenChats(controller);
 	});
-	const auto pin = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Chat qulfi PIN"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto pin = AddRow(box, rpl::single(u"Chat qulfi PIN"_q), &st::menuIconLock);
 	pin->setClickedCallback([=] {
 		Paradoks::ManagePin(controller);
 	});
@@ -1110,12 +1095,7 @@ void SettingsBox(
 		"turing, yoki yuqoridagi shortcut."_q);
 
 	Ui::AddSkip(container);
-	const auto uzbek = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"O'zbek tili (to'liq, beta)"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto uzbek = AddRow(box, rpl::single(u"O'zbek tili (to'liq, beta)"_q), &st::menuIconTranslate);
 	uzbek->setClickedCallback([=] {
 		Lang::CurrentCloudManager().switchToLanguage(u"uz-beta"_q);
 	});
@@ -1126,21 +1106,11 @@ void SettingsBox(
 		"qaytarish mumkin."_q);
 
 	Ui::AddSkip(container);
-	const auto radar = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"O'chirilganlar radari"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto radar = AddRow(box, rpl::single(u"O'chirilganlar radari"_q), &st::menuIconGroupLog);
 	radar->setClickedCallback([=] {
 		box->getDelegate()->show(Box(RadarBox, controller));
 	});
-	const auto editedRadar = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			rpl::single(u"Tahrirlanganlar radari"_q),
-			st::settingsButtonNoIcon),
-		style::margins());
+	const auto editedRadar = AddRow(box, rpl::single(u"Tahrirlanganlar radari"_q), &st::menuIconEdit);
 	editedRadar->setClickedCallback([=] {
 		box->getDelegate()->show(Box(EditedRadarBox, controller));
 	});
