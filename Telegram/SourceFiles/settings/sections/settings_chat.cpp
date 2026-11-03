@@ -52,6 +52,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "history/view/history_view_quick_action.h"
 #include "lang/lang_keys.h"
+#include "lang/lang_cloud_manager.h"
+#include "paradoks/paradoks_icon.h"
 #include "lottie/lottie_icon.h"
 #include "export/export_manager.h"
 #include "window/themes/window_theme.h"
@@ -925,6 +927,44 @@ void BuildChatBackgroundSection(SectionBuilder &builder) {
 	});
 }
 
+void BuildParadoksSection(SectionBuilder &builder) {
+	const auto controller = builder.controller();
+
+	builder.addDivider();
+	builder.addSkip();
+	builder.addSubsectionTitle({
+		.id = u"chat/paradoks"_q,
+		.title = rpl::single(u"ParadoksGram"_q),
+		.keywords = { u"paradoks"_q, u"icon"_q, u"language"_q },
+	});
+	builder.addButton({
+		.id = u"chat/app-icon"_q,
+		.title = rpl::single(u"App icon"_q),
+		.icon = { &st::menuIconPalette },
+		.onClick = [=] {
+			if (controller) {
+				controller->show(Box(Paradoks::AppIcon::PickerBox));
+			}
+		},
+		.keywords = { u"icon"_q, u"logo"_q, u"ghost"_q, u"ikonka"_q },
+	});
+	builder.addButton({
+		.id = u"chat/uzbek-language"_q,
+		.title = rpl::single(u"O'zbek tili (Uzbek)"_q),
+		.icon = { &st::menuIconTranslate },
+		.onClick = [] {
+			Lang::CurrentCloudManager().switchToLanguage(u"uz-beta"_q);
+		},
+		.keywords = {
+			u"uzbek"_q,
+			u"language"_q,
+			u"til"_q,
+			u"o'zbek"_q,
+		},
+	});
+	builder.addSkip();
+}
+
 void BuildChatListQuickActionSection(SectionBuilder &builder) {
 	const auto controller = builder.controller();
 
@@ -1300,6 +1340,7 @@ void BuildChatSectionContent(SectionBuilder &builder) {
 	BuildThemeSettingsSection(builder);
 	BuildCloudThemesSection(builder);
 	BuildChatBackgroundSection(builder);
+	BuildParadoksSection(builder);
 	BuildChatListQuickActionSection(builder);
 	BuildStickersEmojiSection(builder);
 	BuildMessagesSection(builder);
