@@ -270,13 +270,14 @@ jobs:
           7z a -tzip -mx=9 -mfb=258 -mpass=15 ../ParadoksGram-Windows-x64.zip Telegram.exe
           7z a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=on ../ParadoksGram-Windows-x64.7z Telegram.exe
           ls -l ../ParadoksGram-Windows-x64.*
-          # Debug symbols: lets crash addresses (Telegram.exe+0x...) be mapped to functions.
-          pdb="${exe%.exe}.pdb"
-          if [ -f "$pdb" ]; then
-            7z a -t7z -m0=lzma2 -mx=5 -md=64m ../ParadoksGram-Symbols.7z "$pdb"
+          # Linker map: maps crash addresses (Telegram.exe+0x...) to functions
+          # (full pdb files are switched off in this build to save disk).
+          map=$(find /d/out -maxdepth 4 -name "Telegram.map" | head -n 1)
+          if [ -n "$map" ]; then
+            7z a -t7z -m0=lzma2 -mx=5 -md=64m ../ParadoksGram-Symbols.7z "$map"
             ls -l ../ParadoksGram-Symbols.7z
           else
-            echo "No pdb found next to $exe"
+            echo "No Telegram.map found under /d/out"
           fi
 
       - name: Installer.

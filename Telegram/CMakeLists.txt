@@ -2490,7 +2490,7 @@ if (WIN32)
         target_link_libraries(Telegram PRIVATE desktop-app::win_directx_helper)
     endif()
 
-    target_link_options(Telegram PRIVATE /PDBPAGESIZE:8192)
+    target_link_options(Telegram PRIVATE /PDBPAGESIZE:8192 /MAP)
 elseif (APPLE)
     if (NOT DESKTOP_APP_USE_PACKAGED)
         target_link_libraries(Telegram PRIVATE desktop-app::external_iconv)
