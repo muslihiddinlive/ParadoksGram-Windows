@@ -23,6 +23,12 @@ void Refresh();
 // An ad packed like Telegram's answer, or an empty answer if nothing fits.
 [[nodiscard]] MTPmessages_sponsoredMessages Build(bool bot);
 
+// "Reklama faqat reaksiya bosilganda": with ads hidden, a channel's ads
+// appear only after the user reacted there.
+[[nodiscard]] bool Hidden(not_null<History*> history);
+[[nodiscard]] bool Suppressed(not_null<History*> history);
+void OnInteraction(not_null<History*> history);
+
 [[nodiscard]] bool IsOurs(const QByteArray &randomId);
 void OnView(const QByteArray &randomId);
 void OnClick(const QByteArray &randomId);

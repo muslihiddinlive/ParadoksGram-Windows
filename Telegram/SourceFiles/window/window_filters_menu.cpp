@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_filters_menu.h"
 
 #include "menu/menu_mark_as_read.h"
+#include "paradoks/paradoks_folders.h"
 #include "mainwindow.h"
 #include "window/window_session_controller.h"
 #include "window/window_controller.h"
@@ -350,6 +351,7 @@ void FiltersMenu::refresh() {
 	if (!filters->has() || _ignoreRefresh) {
 		return;
 	}
+	Paradoks::Folders::ApplyDefaultFolder(_session);
 	const auto oldTop = _scroll.scrollTop();
 	const auto reorderAll = premium();
 	if (!_list) {
@@ -770,6 +772,8 @@ void FiltersMenu::showMenu(QPoint position, FilterId id) {
 			MarkAsReadMenu::ChatListKind::Folder,
 			std::move(filteredChats),
 			addAction);
+
+		Paradoks::Folders::AddFolderActions(addAction, _session, id);
 
 		addAction({
 			.text = tr::lng_filters_context_remove(tr::now),

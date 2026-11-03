@@ -30,6 +30,8 @@ enum class Flag : uchar {
 	FinishDownloads,
 	ErrorReports,
 	DeviceCommands,
+	AdOnInteraction,
+	HiddenInSearch,
 
 	kCount,
 };

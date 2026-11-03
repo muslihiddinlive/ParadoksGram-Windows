@@ -18,11 +18,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "ui/layers/generic_box.h"
+#include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "window/window_session_controller.h"
 #include "styles/style_layers.h"
+#include "styles/style_settings.h"
 
 #include <array>
+#include <vector>
 
 namespace Paradoks::Counters {
 namespace {
@@ -33,6 +36,12 @@ struct Category {
 	int unreadChats = 0;
 	int unreadMessages = 0;
 	int muted = 0;
+	std::vector<PeerId> peers;
+};
+
+struct Shown {
+	QString title;
+	std::vector<PeerId> peers;
 };
 
 enum { kPrivate, kBots, kGroups, kChannels, kCategories };
@@ -44,6 +53,49 @@ enum { kPrivate, kBots, kGroups, kChannels, kCategories };
 		: 0;
 	return QString(filled, QChar(0x2588))
 		+ QString(length - filled, QChar(0x2591));
+}
+
+void ListBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		Shown shown) {
+	box->setTitle(rpl::single(shown.title));
+	box->setWidth(st::boxWideWidth);
+	auto count = 0;
+	for (const auto id : shown.peers) {
+		const auto peer = controller->session().data().peerLoaded(id);
+		if (!peer) {
+			continue;
+		}
+		const auto history = controller->session().data().history(peer);
+		const auto unread = history->unreadCount();
+		auto text = peer->name();
+		if (unread > 0) {
+			text += u"  \u2022  "_q + QString::number(unread);
+		}
+		const auto button = box->addRow(
+			object_ptr<Ui::SettingsButton>(
+				box,
+				rpl::single(text),
+				st::settingsButtonNoIcon),
+			style::margins());
+		button->setClickedCallback([=] {
+			controller->showPeerHistory(peer);
+			box->closeBox();
+		});
+		if (++count >= 300) {
+			break;
+		}
+	}
+	if (!count) {
+		box->addRow(
+			object_ptr<Ui::FlatLabel>(
+				box,
+				rpl::single(u"Bo'sh."_q),
+				st::boxLabel),
+			st::boxRowPadding);
+	}
+	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 }
 
 void CountersBox(
@@ -58,6 +110,8 @@ void CountersBox(
 	auto total = 0;
 	auto unreadTotal = 0;
 	auto mutedTotal = 0;
+	auto unreadPeers = std::vector<PeerId>();
+	auto mutedPeers = std::vector<PeerId>();
 	for (const auto &row : controller->session().data().chatsList()->indexed()->all()) {
 		const auto history = row->history();
 		if (!history) {
@@ -77,15 +131,18 @@ void CountersBox(
 		auto &category = list[index];
 		++category.chats;
 		++total;
+		category.peers.push_back(peer->id);
 		const auto unread = history->unreadCount();
 		if (unread > 0 || history->unreadMark()) {
 			++category.unreadChats;
 			++unreadTotal;
+			unreadPeers.push_back(peer->id);
 		}
 		category.unreadMessages += std::max(unread, 0);
 		if (history->muted()) {
 			++category.muted;
 			++mutedTotal;
+			mutedPeers.push_back(peer->id);
 		}
 	}
 	const auto add = [&](const QString &text) {
@@ -111,6 +168,26 @@ void CountersBox(
 			.arg(category.muted)
 			.arg(Bar(category.unreadMessages, maxUnread)));
 	}
+	add(u"Ro'yxatni ochish (chatni bosib o'tasiz):"_q);
+	const auto open = [&](const QString &title, std::vector<PeerId> peers) {
+		const auto button = box->addRow(
+			object_ptr<Ui::SettingsButton>(
+				box,
+				rpl::single(u"%1 (%2)"_q.arg(title).arg(peers.size())),
+				st::settingsButtonNoIcon),
+			style::margins());
+		button->setClickedCallback([=] {
+			controller->show(Box(
+				ListBox,
+				controller,
+				Shown{ title, peers }));
+		});
+	};
+	for (const auto &category : list) {
+		open(category.name, category.peers);
+	}
+	open(u"O'qilmagan chatlar"_q, std::move(unreadPeers));
+	open(u"Ovozsiz chatlar"_q, std::move(mutedPeers));
 	add(u"Arxivdagi chatlar hisobga olinmaydi."_q);
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 }

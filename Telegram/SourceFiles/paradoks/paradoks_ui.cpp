@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "base/unixtime.h"
 #include "data/data_document.h"
+#include "data/data_channel.h"
 #include "data/data_user.h"
 #include "data/data_peer.h"
 #include "data/data_photo.h"
@@ -921,6 +922,10 @@ void SettingsBox(
 		box,
 		Flag::OwnAds,
 		u"ParadoksGram reklamasi (reklama yashirilganda)"_q);
+	AddToggle(
+		box,
+		Flag::AdOnInteraction,
+		u"Reaksiya bosilganda reklama ko'rsatish"_q);
 	AddText(
 		box,
 		u"Telegram homiylik xabarlari yashirilganda kanal oxirida yoki bot "
@@ -1089,6 +1094,10 @@ void SettingsBox(
 	pin->setClickedCallback([=] {
 		Paradoks::ManagePin(controller);
 	});
+	AddToggle(
+		box,
+		Flag::HiddenInSearch,
+		u"Qidiruvda yashirin chatlarni ko'rsatish"_q);
 	AddShortcutRow(
 		box,
 		Hotkey::Slot::Hidden,
@@ -1347,9 +1356,38 @@ void AddInspectAction(
 		not_null<Ui::PopupMenu*> menu,
 		std::shared_ptr<Ui::Show> show,
 		not_null<HistoryItem*> item) {
+	// Look the message up again on click: it may be gone by then.
+	const auto session = &item->history()->session();
+	const auto id = item->fullId();
 	menu->addAction(u"Xabar xususiyatlari"_q, [=] {
-		show->showBox(Box(InspectBox, InspectText(item)));
+		if (const auto again = session->data().message(id)) {
+			show->showBox(Box(InspectBox, InspectText(again)));
+		}
 	}, &st::menuIconInfo);
+	menu->addAction(u"Shaxsiy havola"_q, [=] {
+		const auto again = session->data().message(id);
+		if (!again) {
+			return;
+		}
+		const auto peer = again->history()->peer;
+		const auto msg = QString::number(again->id.bare);
+		auto link = QString();
+		if (const auto channel = peer->asChannel()) {
+			link = u"https://t.me/c/%1/%2"_q.arg(
+				QString::number(peerToChannel(channel->id).bare),
+				msg);
+		} else if (peer->isUser()) {
+			link = u"tg://openmessage?user_id=%1&message_id=%2"_q.arg(
+				QString::number(peerToUser(peer->id).bare),
+				msg);
+		} else {
+			link = u"tg://openmessage?chat_id=%1&message_id=%2"_q.arg(
+				QString::number(peerToChat(peer->id).bare),
+				msg);
+		}
+		QGuiApplication::clipboard()->setText(link);
+		show->showToast(u"Havola nusxalandi"_q);
+	}, &st::menuIconCopy);
 }
 
 } // namespace Paradoks

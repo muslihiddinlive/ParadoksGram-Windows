@@ -6,6 +6,8 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/dialogs_inner_widget.h"
+#include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_privacy.h"
 
 #include "dialogs/dialogs_three_state_icon.h"
 #include "dialogs/ui/chat_search_empty.h"
@@ -4820,7 +4822,14 @@ void InnerWidget::peerSearchReceived(Api::PeerSearchResult result) {
 	clearPeerSearchResults();
 	_peerSearchResults.reserve(result.peers.size()
 		+ result.sponsored.size());
+	const auto hiddenInSearch = [&](not_null<PeerData*> peer) {
+		return !Paradoks::Enabled(Paradoks::Flag::HiddenInSearch)
+			&& Paradoks::IsHiddenPeer(&peer->session(), peer->id);
+	};
 	for	(const auto &peer : result.my) {
+		if (hiddenInSearch(peer)) {
+			continue;
+		}
 		appendToFiltered(peer->owner().history(peer));
 	}
 	const auto inlist = [&](not_null<PeerData*> peer) {
@@ -4833,7 +4842,9 @@ void InnerWidget::peerSearchReceived(Api::PeerSearchResult result) {
 	auto added = base::flat_set<not_null<PeerData*>>();
 	for (const auto &sponsored : result.sponsored) {
 		const auto peer = sponsored.peer;
-		if (inlist(peer) || _sponsoredRemoved.contains(peer)) {
+		if (inlist(peer)
+			|| hiddenInSearch(peer)
+			|| _sponsoredRemoved.contains(peer)) {
 			continue;
 		}
 		_peerSearchResults.push_back(
@@ -4845,7 +4856,7 @@ void InnerWidget::peerSearchReceived(Api::PeerSearchResult result) {
 		added.emplace(peer);
 	}
 	for (const auto &peer : result.peers) {
-		if (added.contains(peer) || inlist(peer)) {
+		if (added.contains(peer) || inlist(peer) || hiddenInSearch(peer)) {
 			continue;
 		}
 		_peerSearchResults.push_back(

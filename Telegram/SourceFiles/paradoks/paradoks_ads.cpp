@@ -11,6 +11,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_debug.h"
 #include "apiwrap.h"
+#include "base/flat_set.h"
+#include "data/components/sponsored_messages.h"
+#include "data/data_peer.h"
+#include "data/data_session.h"
+#include "history/history.h"
+#include "main/main_session.h"
 
 #include <QtCore/QDate>
 #include <QtCore/QJsonArray>
@@ -187,6 +193,40 @@ void SendEvent(int adId, const QString &kind) {
 }
 
 } // namespace
+
+namespace {
+
+[[nodiscard]] base::flat_set<PeerId> &Allowed() {
+	static auto result = base::flat_set<PeerId>();
+	return result;
+}
+
+} // namespace
+
+bool Suppressed(not_null<History*> history) {
+	return Enabled(Flag::HideSponsored)
+		&& Enabled(Flag::AdOnInteraction)
+		&& !Allowed().contains(history->peer->id);
+}
+
+bool Hidden(not_null<History*> history) {
+	return Enabled(Flag::HideSponsored)
+		&& !(Enabled(Flag::AdOnInteraction)
+			&& Allowed().contains(history->peer->id));
+}
+
+void OnInteraction(not_null<History*> history) {
+	if (!Enabled(Flag::HideSponsored)
+		|| !Enabled(Flag::AdOnInteraction)
+		|| !history->peer->isBroadcast()) {
+		return;
+	}
+	if (Allowed().emplace(history->peer->id).second) {
+		history->session().sponsoredMessages().request(
+			history,
+			nullptr);
+	}
+}
 
 bool Active() {
 	return Enabled(Flag::OwnAds) && !Server().isEmpty();

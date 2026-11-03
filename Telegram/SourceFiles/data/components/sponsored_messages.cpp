@@ -304,8 +304,9 @@ HistoryItem *SponsoredMessages::injectItem(
 }
 
 bool SponsoredMessages::canHaveFor(not_null<History*> history) const {
-	if (Paradoks::Enabled(Paradoks::Flag::HideSponsored)
-		&& !Paradoks::Ads::Active()) {
+	if (Paradoks::Ads::Suppressed(history)) {
+		return false;
+	} else if (Paradoks::Ads::Hidden(history) && !Paradoks::Ads::Active()) {
 		return false;
 	} else if (history->peer->isChannel()) {
 		return true;
@@ -316,7 +317,7 @@ bool SponsoredMessages::canHaveFor(not_null<History*> history) const {
 }
 
 bool SponsoredMessages::canHaveFor(not_null<HistoryItem*> item) const {
-	return !Paradoks::Enabled(Paradoks::Flag::HideSponsored)
+	return !Paradoks::Ads::Hidden(item->history())
 		&& item->history()->peer->isBroadcast()
 		&& item->isRegular();
 }
@@ -351,7 +352,7 @@ void SponsoredMessages::request(not_null<History*> history, Fn<void()> done) {
 			}
 		}
 	}
-	if (Paradoks::Enabled(Paradoks::Flag::HideSponsored)) {
+	if (Paradoks::Ads::Hidden(history)) {
 		// Telegram's ads are hidden: show our own ad (if any) instead.
 		const auto bot = !history->peer->isChannel();
 		const auto result = Paradoks::Ads::Build(bot);
