@@ -972,6 +972,14 @@ void MainMenu::setupMenu() {
 			_nightThemeSwitches.fire_copy(*darkMode);
 		}
 	}, _nightThemeToggle->lifetime());
+
+	// Support group, at the very bottom (like Plus Messenger).
+	addAction(
+		rpl::single(u"Qo'llab-quvvatlash guruhi"_q),
+		{ &st::menuIconDiscussion }
+	)->setClickedCallback([=] {
+		UrlClickHandler::Open(u"https://t.me/+xi5ozsTo2bUzZTVi"_q);
+	});
 }
 
 void MainMenu::resizeEvent(QResizeEvent *e) {
