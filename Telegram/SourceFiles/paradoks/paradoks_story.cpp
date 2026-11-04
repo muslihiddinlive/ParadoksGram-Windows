@@ -771,9 +771,15 @@ void LiveInfoBox(
 	});
 	if (call) {
 		const auto live = *call;
-		box->addLeftButton(rpl::single(u"Narxni o'zgartirish"_q), [=] {
-			controller->show(Box(SetLivePriceBox, controller, live, stars));
-		});
+		if (session->premium()) {
+			box->addLeftButton(rpl::single(u"Narxni o'zgartirish"_q), [=] {
+				controller->show(Box(
+					SetLivePriceBox,
+					controller,
+					live,
+					stars));
+			});
+		}
 		box->addLeftButton(rpl::single(u"Efirni tugatish"_q), [=] {
 			session->api().request(MTPphone_DiscardGroupCall(
 				MTP_inputGroupCall(
@@ -816,9 +822,13 @@ void RequestLiveKey(
 void StartLiveRequest(
 		not_null<Window::SessionController*> controller,
 		const Options &options,
-		int stars) {
+		int stars,
+		bool retried = false) {
 	const auto session = &controller->session();
 	const auto toast = MakeToast(controller);
+	if (!session->premium()) {
+		stars = 0; // Paid messages are only for Premium accounts.
+	}
 	auto flags = MTPstories_StartLive::Flags(0)
 		| MTPstories_StartLive::Flag::f_rtmp_stream
 		| MTPstories_StartLive::Flag::f_messages_enabled;
@@ -849,6 +859,16 @@ void StartLiveRequest(
 		toast(u"Jonli efir boshlandi"_q);
 		RequestLiveKey(controller, call, stars);
 	}).fail([=](const MTP::Error &error) {
+		if (!retried && error.type() == u"CAPTION_NOT_EMPTY"_q) {
+			// The server did not accept our caption setup: try again
+			// with the opposite one (a default title or no title).
+			auto other = options;
+			other.caption = options.caption.isEmpty()
+				? u"Jonli efir"_q
+				: QString();
+			StartLiveRequest(controller, other, stars, true);
+			return;
+		}
 		toast(u"Efirni boshlab bo'lmadi: "_q + error.type());
 	}).send();
 }
@@ -869,18 +889,22 @@ void LiveBox(
 		st::boxRowPadding);
 	input->setMaxLength(session->premium() ? 2048 : 200);
 
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(
-		container,
-		rpl::single(u"Efirga xabar yozish narxi (Stars)"_q));
-	const auto price = box->addRow(
-		object_ptr<Ui::InputField>(
-			box,
-			st::defaultInputField,
-			Ui::InputField::Mode::SingleLine,
-			rpl::single(u"0 = bepul"_q),
-			u"0"_q),
-		st::boxRowPadding);
+	// Paid (Stars) messages in a live stream are for Premium accounts only.
+	Ui::InputField *price = nullptr;
+	if (session->premium()) {
+		Ui::AddSkip(container);
+		Ui::AddSubsectionTitle(
+			container,
+			rpl::single(u"Efirga xabar yozish narxi (Stars)"_q));
+		price = box->addRow(
+			object_ptr<Ui::InputField>(
+				box,
+				st::defaultInputField,
+				Ui::InputField::Mode::SingleLine,
+				rpl::single(u"0 = bepul"_q),
+				u"0"_q),
+			st::boxRowPadding);
+	}
 
 	Ui::AddSkip(container);
 	Ui::AddSubsectionTitle(container, rpl::single(u"Kim ko'radi"_q));
@@ -922,7 +946,9 @@ void LiveBox(
 			.noForwards = noForwards->checked(),
 			.pinned = pinned->checked(),
 		};
-		const auto stars = ParseStars(session, price->getLastText());
+		const auto stars = price
+			? ParseStars(session, price->getLastText())
+			: 0;
 		box->closeBox();
 		StartLiveRequest(controller, options, stars);
 	});
