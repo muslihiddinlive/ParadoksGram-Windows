@@ -8,11 +8,11 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
-## 1.16.0 (3-noyabr)
-Chat Settings ichida ikonka almashtirish va o'zbek tiliga o'tish
-
 ## 1.17.0 (4-noyabr)
 Yon menyuda "Qo'llab-quvvatlash guruhi"
+
+## 1.16.0 (3-noyabr)
+Chat Settings ichida ikonka almashtirish va o'zbek tiliga o'tish
 
 ## 1.15.0 (3-noyabr)
 ParadoksGram sozlamalari Telegram uslubida: logo, ikonkali qatorlar, bo'limlar
