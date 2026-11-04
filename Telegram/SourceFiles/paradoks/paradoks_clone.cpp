@@ -47,8 +47,8 @@ namespace {
 
 constexpr auto kPageLimit = 100;
 constexpr auto kForwardChunk = 100;
-constexpr auto kChunkPause = crl::time(500);
-constexpr auto kHistoryPause = crl::time(120);
+constexpr auto kChunkPause = crl::time(0);
+constexpr auto kHistoryPause = crl::time(0);
 
 struct Record {
 	qint64 id = 0; // Creation time in ms, also the key.
