@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtCore/QDateTime>
 #include <QtCore/QSettings>
+#include <QtCore/QUrl>
 
 #include <array>
 #include <chrono>
@@ -54,6 +55,7 @@ constexpr auto kFlags = std::array<FlagInfo, kCount>{ {
 	{ "device_commands", false },
 	{ "ad_on_interaction", false },
 	{ "hidden_in_search", false },
+	{ "web_proxy", false },
 } };
 
 std::array<std::atomic<bool>, kCount> Values;
@@ -285,6 +287,44 @@ bool InGhostWindow() {
 	return (start < end)
 		? (now >= start && now < end)
 		: (now >= start || now < end);
+}
+
+QString NormalizeWebProxy(const QString &text) {
+	auto value = text.trimmed();
+	if (value.isEmpty()) {
+		return QString();
+	}
+	if (!value.contains(u"://"_q)) {
+		value = u"http://"_q + value;
+	}
+	const auto url = QUrl(value, QUrl::StrictMode);
+	const auto scheme = url.scheme().toLower();
+	if (!url.isValid()
+		|| (scheme != u"http"_q
+			&& scheme != u"https"_q
+			&& scheme != u"socks4"_q
+			&& scheme != u"socks5"_q)
+		|| url.host().isEmpty()
+		|| !url.userInfo().isEmpty()
+		|| url.port() < 1
+		|| url.port() > 65535) {
+		return QString();
+	}
+	return scheme + u"://"_q + url.host() + ':' + QString::number(url.port());
+}
+
+void ApplyWebProxy() {
+	if (!Enabled(Flag::WebProxy)) {
+		return;
+	}
+	const auto proxy = NormalizeWebProxy(StringSetting(u"web/proxy"_q));
+	if (proxy.isEmpty()) {
+		return;
+	}
+	// WebView2 (Chromium) reads extra command line switches from here.
+	qputenv(
+		"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+		(u"--proxy-server="_q + proxy).toUtf8());
 }
 
 } // namespace Paradoks

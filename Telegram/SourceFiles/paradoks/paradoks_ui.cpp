@@ -112,6 +112,7 @@ not_null<Settings::Button*> AddRow(
 	case Flag::DeviceCommands: return &st::menuIconBotCommands;
 	case Flag::AdOnInteraction: return &st::menuIconReactions;
 	case Flag::HiddenInSearch: return &st::menuIconSearch;
+	case Flag::WebProxy: return &st::menuIconIpAddress;
 	default: return &st::menuIconSettings;
 	}
 }
@@ -704,6 +705,41 @@ void TimeBox(
 	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 }
 
+void WebProxyBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller) {
+	box->setTitle(rpl::single(u"Mini-app proxy manzili"_q));
+	const auto input = box->addRow(
+		object_ptr<Ui::InputField>(
+			box,
+			st::defaultInputField,
+			Ui::InputField::Mode::SingleLine,
+			rpl::single(u"socks5://host:port"_q),
+			StringSetting(u"web/proxy"_q)),
+		st::boxRowPadding);
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			rpl::single(u"Masalan: socks5://1.2.3.4:1080 yoki "
+				"http://1.2.3.4:8080. Login va parol qo'llanmaydi."_q),
+			st::boxLabel),
+		st::boxRowPadding);
+	box->addButton(rpl::single(u"Saqlash"_q), [=] {
+		const auto text = input->getLastText().trimmed();
+		const auto proxy = NormalizeWebProxy(text);
+		if (!text.isEmpty() && proxy.isEmpty()) {
+			controller->showToast(
+				u"Manzil noto'g'ri. Misol: socks5://1.2.3.4:1080"_q);
+			return;
+		}
+		SetStringSetting(u"web/proxy"_q, proxy);
+		controller->showToast(
+			u"Saqlandi. Ilovani qayta ishga tushirgach kuchga kiradi"_q);
+		box->closeBox();
+	});
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
 void AgentServerBox(not_null<Ui::GenericBox*> box) {
 	box->setTitle(rpl::single(u"AI server manzili"_q));
 	const auto input = box->addRow(
@@ -963,6 +999,29 @@ void SettingsBox(
 		"Server manzili ilovada emas, GitHub build'ida beriladi (ADS_SERVER_URL). "
 		"Serverga faqat reklama raqami, hodisa turi (ko'rildi / bosildi) va "
 		"tasodifiy anonim raqam yuboriladi, Telegram ma'lumotlaringiz emas."_q);
+
+	AddSection(container, u"Mini-app proxy"_q);
+	AddToggle(
+		box,
+		Flag::WebProxy,
+		u"Mini-applar proxy orqali ochilsin"_q);
+	const auto webProxy = AddRow(
+		box,
+		rpl::single(StringSetting(u"web/proxy"_q).isEmpty()
+			? u"Proxy manzili: o'rnatilmagan"_q
+			: u"Proxy manzili: "_q + StringSetting(u"web/proxy"_q)),
+		&st::menuIconNetwork);
+	webProxy->setClickedCallback([=] {
+		controller->show(Box(WebProxyBox, controller));
+	});
+	AddText(
+		box,
+		u"Mini-applar (webapp) va ilova ichidagi veb oynalar internetga "
+		"qurilmangizning IP manzili o'rniga siz kiritgan proxy orqali "
+		"chiqadi, shuning uchun saytlar boshqa IP va joylashuvni ko'radi. "
+		"Telegram chatlari bunga tegmaydi. O'zgarish ilovani qayta ishga "
+		"tushirgach kuchga kiradi. Login/parolli proxy bu yerda "
+		"qo'llanmaydi."_q);
 
 	AddBackupSection(box, controller);
 

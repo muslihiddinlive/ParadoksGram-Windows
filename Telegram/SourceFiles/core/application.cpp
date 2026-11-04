@@ -571,6 +571,7 @@ void Application::startSettingsAndBackground() {
 		Window::Theme::ToggleNightMode();
 		Window::Theme::KeepApplied();
 	}
+	Paradoks::ApplyWebProxy();
 	Paradoks::Hotkey::Start();
 	Paradoks::Crash::Install();
 	Ui::SetScreenReaderModeDisabled(
