@@ -1718,6 +1718,8 @@ PRIVATE
     paradoks/paradoks_folders.h
     paradoks/paradoks_viewer.cpp
     paradoks/paradoks_viewer.h
+    paradoks/paradoks_webdev.cpp
+    paradoks/paradoks_webdev.h
     paradoks/paradoks_config.cpp
     paradoks/paradoks_config.h
     paradoks/paradoks_broadcast.cpp

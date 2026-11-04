@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/chat/attach/attach_bot_webview.h"
 
+#include "paradoks/paradoks_webdev.h"
+
 #include "ui/chat/attach/attach_bot_downloads.h"
 #include "ui/chat/attach/attach_bot_webview_linux_shell.h"
 #include "ui/effects/radial_animation.h"
@@ -1598,6 +1600,7 @@ void Panel::hideWebviewProgress() {
 bool Panel::showWebview(Args &&args, const Webview::ThemeParams &params) {
 	_bottomText = std::move(args.bottom);
 	_externalUrl = args.url;
+	Paradoks::WebDev::SetUrl(args.url);
 	_sameOrigin = args.sameOrigin;
 	_initialOrigin = OriginFromUrl(args.url);
 	if (_externalShell && !_webview) {
@@ -2315,6 +2318,7 @@ bool Panel::createWebview(const Webview::ThemeParams &params) {
 		}
 		const auto &command = parsed->command;
 		const auto &arguments = parsed->arguments;
+		Paradoks::WebDev::LogIncoming(command, arguments);
 		if (parsed->source == NativeMessageSource::ExternalShell) {
 			if (!_externalShell || !_externalShellBootstrapped) {
 				return;
@@ -3826,6 +3830,10 @@ void Panel::postEvent(const QString &event, EventData data) {
 			).arg(event));
 		return;
 	}
+	Paradoks::WebDev::LogOutgoing(event, v::is<QString>(data)
+		? v::get<QString>(data)
+		: QString::fromUtf8(QJsonDocument(
+			v::get<QJsonObject>(data)).toJson(QJsonDocument::Compact)));
 	if (_externalShell) {
 		if (v::is<QJsonObject>(data)) {
 			sendExternalShellEvent(event, v::get<QJsonObject>(data));

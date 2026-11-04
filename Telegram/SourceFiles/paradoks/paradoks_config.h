@@ -33,6 +33,7 @@ enum class Flag : uchar {
 	AdOnInteraction,
 	HiddenInSearch,
 	WebProxy,
+	WebDevTools,
 
 	kCount,
 };

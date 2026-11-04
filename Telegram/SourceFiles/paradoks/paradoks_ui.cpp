@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_report.h"
 #include "paradoks/paradoks_update.h"
 #include "paradoks/paradoks_voice.h"
+#include "paradoks/paradoks_webdev.h"
 #include "window/window_session_controller.h"
 #include "base/unixtime.h"
 #include "data/data_document.h"
@@ -113,6 +114,7 @@ not_null<Settings::Button*> AddRow(
 	case Flag::AdOnInteraction: return &st::menuIconReactions;
 	case Flag::HiddenInSearch: return &st::menuIconSearch;
 	case Flag::WebProxy: return &st::menuIconIpAddress;
+	case Flag::WebDevTools: return &st::menuIconExperimental;
 	default: return &st::menuIconSettings;
 	}
 }
@@ -1022,6 +1024,31 @@ void SettingsBox(
 		"Telegram chatlari bunga tegmaydi. O'zgarish ilovani qayta ishga "
 		"tushirgach kuchga kiradi. Login/parolli proxy bu yerda "
 		"qo'llanmaydi."_q);
+
+	AddSection(container, u"Mini-app dasturchilari uchun"_q);
+	const auto devPanel = AddRow(
+		box,
+		rpl::single(u"Dasturchi paneli (bridge jurnali, initData)"_q),
+		&st::menuIconExperimental);
+	devPanel->setClickedCallback([=] {
+		WebDev::Open();
+	});
+	const auto devTools = AddRow(
+		box,
+		rpl::single(u"WebView DevTools (konsol, tarmoq)"_q),
+		IconForFlag(Flag::WebDevTools));
+	devTools->toggleOn(
+		rpl::single(Enabled(Flag::WebDevTools))
+	)->toggledValue() | rpl::on_next([=](bool value) {
+		WebDev::SetDevTools(value);
+	}, devTools->lifetime());
+	AddText(
+		box,
+		u"Dasturchi paneli: mini-app va Telegram o'rtasidagi barcha "
+		"chaqiruvlar jurnali (MainButton, showPopup, openInvoice va "
+		"boshqalar) hamda ochilgan mini-appning initData'si. DevTools "
+		"yoqilsa, yangi ochilgan mini-appda o'ng tugma \u2192 Inspect "
+		"(yoki F12) Chrome DevTools'ni ochadi: Console, Network, Elements."_q);
 
 	AddBackupSection(box, controller);
 

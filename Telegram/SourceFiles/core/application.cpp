@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_webdev.h"
 #include "paradoks/paradoks_crash.h"
 #include "paradoks/paradoks_hotkey.h"
 
@@ -572,6 +573,7 @@ void Application::startSettingsAndBackground() {
 		Window::Theme::KeepApplied();
 	}
 	Paradoks::ApplyWebProxy();
+	Paradoks::WebDev::ApplyDevTools();
 	Paradoks::Hotkey::Start();
 	Paradoks::Crash::Install();
 	Ui::SetScreenReaderModeDisabled(
