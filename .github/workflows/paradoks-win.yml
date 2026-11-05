@@ -41,7 +41,8 @@ jobs:
 
       - name: Prepare directories.
         run: |
-          mkdir %userprofile%\TBuild\Libraries
+          mkdir D:\TBuild\Libraries
+          mklink /d %userprofile%\TBuild D:\TBuild
           mklink /d %GITHUB_WORKSPACE%\TBuild %userprofile%\TBuild
           echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV%
           echo LibrariesPath=%GITHUB_WORKSPACE%\TBuild\Libraries\win64>>%GITHUB_ENV%
