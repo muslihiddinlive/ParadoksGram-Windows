@@ -9,6 +9,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_webcopy.h"
+#include "api/api_common.h"
+#include "apiwrap.h"
+#include "core/application.h"
+#include "data/data_session.h"
+#include "data/data_user.h"
+#include "history/history.h"
+#include "main/main_account.h"
+#include "main/main_domain.h"
+#include "main/main_session.h"
+#include "storage/localimageloader.h"
+#include "storage/storage_media_prepare.h"
+#include "ui/chat/attach/attach_prepare.h"
 #include "base/options.h"
 #include "webview/webview_embed.h"
 
@@ -20,6 +32,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QUrl>
 #include <QtCore/QUrlQuery>
 #include <QtCore/QDir>
+#include <QtCore/QFileInfo>
 #include <QtGui/QClipboard>
 #include <QtGui/QDesktopServices>
 #include <QtGui/QGuiApplication>
@@ -221,7 +234,8 @@ void BuildWindow() {
 	const auto copyLayout = new QVBoxLayout(copyTab);
 	const auto copyNote = new QLabel(
 		u"Ochiq mini-appning ochiq qismini (HTML, CSS, skriptlar, rasmlar) "
-		"papkaga saqlaydi, havolalar offlayn ochiladigan qilib o'zgartiriladi. "
+		"ZIP qilib saqlaydi va Saved Messages ga yuboradi (limit 1.5 GB), "
+		"havolalar offlayn ochiladigan qilib o'zgartiriladi. "
 		"Hech qanday shaxsiy ma'lumot (initData, cookie) yuborilmaydi. "
 		"Serverdagi (backend) kod saqlanmaydi. Faqat o'z mini-appingiz yoki "
 		"o'rganish uchun foydalaning: boshqaning ishini o'zinikidek "
@@ -229,9 +243,9 @@ void BuildWindow() {
 		copyTab);
 	copyNote->setWordWrap(true);
 	const auto copyStart = new QPushButton(
-		u"Joriy mini-app sahifasini saqlash"_q,
+		u"Sahifani saqlash va Saved Messages ga yuborish"_q,
 		copyTab);
-	const auto copyOpen = new QPushButton(u"Papkani ochish"_q, copyTab);
+	const auto copyOpen = new QPushButton(u"ZIP joylashgan papkani ochish"_q, copyTab);
 	copyOpen->setEnabled(false);
 	const auto copyLog = new QPlainTextEdit(copyTab);
 	copyLog->setReadOnly(true);
@@ -297,15 +311,45 @@ void BuildWindow() {
 				copyStart->setEnabled(true);
 				*copyFolder = folder;
 				copyOpen->setEnabled(!folder.isEmpty());
-				if (!folder.isEmpty()) {
-					copyLog->appendPlainText(u"Papka: "_q
-						+ QDir::toNativeSeparators(folder));
+				if (folder.isEmpty()) {
+					return;
 				}
+				copyLog->appendPlainText(u"Fayl: "_q
+					+ QDir::toNativeSeparators(folder));
+				const auto account
+					= Core::App().domain().maybeLastOrSomeAuthedAccount();
+				const auto session = account ? account->maybeSession() : nullptr;
+				if (!session) {
+					copyLog->appendPlainText(
+						u"Saved Messages ga yuborib bo'lmadi (akkaunt yo'q)."_q);
+					return;
+				}
+				auto files = Storage::PrepareMediaList(
+					QStringList(folder),
+					256,
+					session->premium());
+				if (files.error != Ui::PreparedList::Error::None
+					|| files.files.empty()) {
+					copyLog->appendPlainText(
+						u"ZIP yuborib bo'lmadi (hajm katta bo'lishi mumkin)."_q);
+					return;
+				}
+				files.files.front().caption = TextWithTags{
+					u"Mini-app nusxasi: "_q + QFileInfo(folder).fileName(),
+				};
+				session->api().sendFiles(
+					std::move(files),
+					SendMediaType::File,
+					nullptr,
+					Api::SendAction(session->data().history(session->user())));
+				copyLog->appendPlainText(
+					u"Saved Messages ga yuborilmoqda."_q);
 			});
 	});
 	QObject::connect(copyOpen, &QPushButton::clicked, window, [=] {
 		if (!copyFolder->isEmpty()) {
-			QDesktopServices::openUrl(QUrl::fromLocalFile(*copyFolder));
+			QDesktopServices::openUrl(QUrl::fromLocalFile(
+				QFileInfo(*copyFolder).absolutePath()));
 		}
 	});
 	window->show();

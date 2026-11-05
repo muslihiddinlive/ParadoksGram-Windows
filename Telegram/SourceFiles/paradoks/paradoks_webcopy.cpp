@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
 #include <QtCore/QHash>
+#include <QtCore/QProcess>
 #include <QtCore/QRegularExpression>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QUrl>
@@ -25,9 +26,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Paradoks::WebCopy {
 namespace {
 
-constexpr auto kMaxFiles = 200;
-constexpr auto kMaxFileSize = qint64(12 * 1024 * 1024);
-constexpr auto kMaxTotalSize = qint64(60 * 1024 * 1024);
+constexpr auto kMaxFiles = 2000;
+constexpr auto kMaxFileSize = qint64(100 * 1024 * 1024);
+constexpr auto kMaxTotalSize = qint64(1536) * 1024 * 1024; // 1.5 GB
 
 struct Item {
 	QUrl url;
@@ -229,12 +230,50 @@ void Finish(const std::shared_ptr<Job> &job) {
 		u"Yuklanmagan: %1"_q.arg(job->failed.size()),
 	};
 	info += job->failed;
+	if (!job->queue.empty()) {
+		info.push_back(u"1.5 GB limitga yetildi, qolgan fayllar saqlanmadi."_q);
+	}
 	info.push_back(QString());
 	info.push_back(u"Eslatma: skriptlar ichidan keyin yuklanadigan "
 		"fayllar va serverdagi (backend) kod saqlanmaydi."_q);
 	WriteFile(job->dir + u"/_info.txt"_q, info.join('\n').toUtf8());
-	job->progress(u"Tayyor: %1 ta fayl saqlandi."_q.arg(job->saved + 1));
-	job->done(job->dir);
+	job->progress(u"ZIP yaratilmoqda..."_q);
+	const auto zip = job->dir + u".zip"_q;
+	QFile::remove(zip);
+	const auto process = new QProcess();
+	process->setProgram(u"tar"_q);
+	process->setArguments({
+		u"-a"_q, u"-c"_q, u"-f"_q, zip, u"-C"_q, job->dir, u"."_q,
+	});
+	QObject::connect(
+		process,
+		&QProcess::errorOccurred,
+		process,
+		[=](QProcess::ProcessError error) {
+			if (error != QProcess::FailedToStart) {
+				return;
+			}
+			process->deleteLater();
+			job->progress(u"ZIP yaratib bo'lmadi (tar topilmadi)."_q);
+			job->done(QString());
+		});
+	QObject::connect(
+		process,
+		QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+		process,
+		[=](int code, QProcess::ExitStatus) {
+			process->deleteLater();
+			if (code != 0 || !QFileInfo::exists(zip)) {
+				job->progress(u"ZIP yaratib bo'lmadi."_q);
+				job->done(QString());
+				return;
+			}
+			QDir(job->dir).removeRecursively();
+			job->progress(u"Tayyor: %1 ta fayl, ZIP yaratildi."_q.arg(
+				job->saved + 1));
+			job->done(zip);
+		});
+	process->start();
 }
 
 void Next(const std::shared_ptr<Job> &job) {
