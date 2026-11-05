@@ -1551,18 +1551,68 @@ namespace {
 				add(u"Davomiyligi"_q, u"%1 s"_q.arg(
 					document->duration() / 1000.));
 			}
-			add(u"Stiker"_q, YesNo(document->sticker() != nullptr));
+			if (const auto sticker = document->sticker()) {
+				add(u"Turi"_q, u"Stiker"_q);
+				if (!sticker->alt.isEmpty()) {
+					add(u"Stiker emojisi"_q, sticker->alt);
+				}
+				add(u"Stiker formati"_q, sticker->isWebm()
+					? u"video (webm)"_q
+					: (sticker->isLottie()
+						? u"animatsiyali (tgs)"_q
+						: u"statik (webp)"_q));
+				add(u"Premium stiker"_q, YesNo(document->isPremiumSticker()));
+				if (sticker->set.id) {
+					add(u"Stiker to'plami ID"_q,
+						QString::number(sticker->set.id));
+				}
+				if (sticker->set.accessHash) {
+					add(u"To'plam access hash"_q,
+						QString::number(sticker->set.accessHash));
+				}
+				if (!sticker->set.shortName.isEmpty()) {
+					add(u"To'plam havolasi"_q,
+						u"https://t.me/addstickers/"_q
+							+ sticker->set.shortName);
+				}
+			} else if (document->isGifv() || document->isAnimation()) {
+				add(u"Turi"_q, u"GIF / animatsiya"_q);
+			} else if (document->isVoiceMessage()) {
+				add(u"Turi"_q, u"Ovozli xabar"_q);
+			} else if (document->isVideoMessage()) {
+				add(u"Turi"_q, u"Dumaloq video"_q);
+			} else if (document->isSong()) {
+				add(u"Turi"_q, u"Musiqa"_q);
+			} else if (document->isVideoFile()) {
+				add(u"Turi"_q, u"Video"_q);
+			}
 		} else if (const auto photo = media->photo()) {
 			add(u"Rasm ID"_q, QString::number(photo->id));
 		} else {
 			add(u"Turi"_q, u"boshqa (havola, so'rovnoma, joylashuv...)"_q);
 		}
 	}
+
+	auto emojiIds = QStringList();
+	for (const auto &entity : text.entities) {
+		if (entity.type() != EntityType::CustomEmoji) {
+			continue;
+		}
+		emojiIds.push_back(QString::number(
+			Data::ParseCustomEmojiData(entity.data())));
+	}
+	if (!emojiIds.isEmpty()) {
+		section(u"Custom emoji"_q);
+		add(u"Soni"_q, QString::number(emojiIds.size()));
+		for (auto i = 0; i != emojiIds.size(); ++i) {
+			add(u"Emoji %1 ID"_q.arg(i + 1), emojiIds[i]);
+		}
+	}
 	return lines.join('\n');
 }
 
 void InspectBox(not_null<Ui::GenericBox*> box, QString text) {
-	box->setTitle(rpl::single(u"Xabar xususiyatlari"_q));
+	box->setTitle(rpl::single(u"Xususiyatlari"_q));
 	box->addRow(
 		object_ptr<Ui::FlatLabel>(box, rpl::single(text), st::boxLabel),
 		st::boxRowPadding);
@@ -1570,6 +1620,19 @@ void InspectBox(not_null<Ui::GenericBox*> box, QString text) {
 		QGuiApplication::clipboard()->setText(text);
 		box->showToast(u"Nusxalandi"_q);
 	});
+	auto ids = QStringList();
+	for (const auto &line : text.split('\n')) {
+		if (line.contains(u"ID"_q) && !line.startsWith(QChar(0x2014))) {
+			ids.push_back(line);
+		}
+	}
+	if (!ids.isEmpty()) {
+		const auto idsText = ids.join('\n');
+		box->addLeftButton(rpl::single(u"Faqat ID'lar"_q), [=] {
+			QGuiApplication::clipboard()->setText(idsText);
+			box->showToast(u"ID'lar nusxalandi"_q);
+		});
+	}
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 }
 
@@ -1582,7 +1645,7 @@ void AddInspectAction(
 	// Look the message up again on click: it may be gone by then.
 	const auto session = &item->history()->session();
 	const auto id = item->fullId();
-	menu->addAction(u"Xabar xususiyatlari"_q, [=] {
+	menu->addAction(u"Xususiyatlari"_q, [=] {
 		if (const auto again = session->data().message(id)) {
 			show->showBox(Box(InspectBox, InspectText(again)));
 		}
