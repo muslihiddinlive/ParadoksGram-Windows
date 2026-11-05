@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_webdev.h"
 
 #include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_webcopy.h"
 #include "base/options.h"
 #include "webview/webview_embed.h"
 
@@ -18,7 +19,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QTimer>
 #include <QtCore/QUrl>
 #include <QtCore/QUrlQuery>
+#include <QtCore/QDir>
 #include <QtGui/QClipboard>
+#include <QtGui/QDesktopServices>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QTextCursor>
 #include <QtWidgets/QCheckBox>
@@ -213,6 +216,32 @@ void BuildWindow() {
 	toolsLayout->addStretch(1);
 	tabs->addTab(tools, u"DevTools"_q);
 
+	// Copy of the page.
+	const auto copyTab = new QWidget(tabs);
+	const auto copyLayout = new QVBoxLayout(copyTab);
+	const auto copyNote = new QLabel(
+		u"Ochiq mini-appning ochiq qismini (HTML, CSS, skriptlar, rasmlar) "
+		"papkaga saqlaydi, havolalar offlayn ochiladigan qilib o'zgartiriladi. "
+		"Hech qanday shaxsiy ma'lumot (initData, cookie) yuborilmaydi. "
+		"Serverdagi (backend) kod saqlanmaydi. Faqat o'z mini-appingiz yoki "
+		"o'rganish uchun foydalaning: boshqaning ishini o'zinikidek "
+		"chiqarish mualliflik huquqini buzadi."_q,
+		copyTab);
+	copyNote->setWordWrap(true);
+	const auto copyStart = new QPushButton(
+		u"Joriy mini-app sahifasini saqlash"_q,
+		copyTab);
+	const auto copyOpen = new QPushButton(u"Papkani ochish"_q, copyTab);
+	copyOpen->setEnabled(false);
+	const auto copyLog = new QPlainTextEdit(copyTab);
+	copyLog->setReadOnly(true);
+	copyLayout->addWidget(copyNote);
+	copyLayout->addWidget(copyStart);
+	copyLayout->addWidget(copyLog, 1);
+	copyLayout->addWidget(copyOpen);
+	tabs->addTab(copyTab, u"Nusxa"_q);
+	const auto copyFolder = std::make_shared<QString>();
+
 	const auto refresh = [=] {
 		bridgeText->setPlainText(LogText(filter->text()));
 		bridgeText->moveCursor(QTextCursor::End);
@@ -244,6 +273,40 @@ void BuildWindow() {
 	});
 	QObject::connect(devtools, &QCheckBox::toggled, window, [=](bool on) {
 		SetDevTools(on);
+	});
+	QObject::connect(copyStart, &QPushButton::clicked, window, [=] {
+		if (CurrentUrl.isEmpty()) {
+			copyLog->setPlainText(u"Mini-app ochilmagan."_q);
+			return;
+		}
+		copyStart->setEnabled(false);
+		copyOpen->setEnabled(false);
+		copyLog->clear();
+		const auto guard = QPointer<QWidget>(window);
+		WebCopy::Start(
+			CurrentUrl,
+			[=](const QString &line) {
+				if (guard) {
+					copyLog->appendPlainText(line);
+				}
+			},
+			[=](const QString &folder) {
+				if (!guard) {
+					return;
+				}
+				copyStart->setEnabled(true);
+				*copyFolder = folder;
+				copyOpen->setEnabled(!folder.isEmpty());
+				if (!folder.isEmpty()) {
+					copyLog->appendPlainText(u"Papka: "_q
+						+ QDir::toNativeSeparators(folder));
+				}
+			});
+	});
+	QObject::connect(copyOpen, &QPushButton::clicked, window, [=] {
+		if (!copyFolder->isEmpty()) {
+			QDesktopServices::openUrl(QUrl::fromLocalFile(*copyFolder));
+		}
 	});
 	window->show();
 }

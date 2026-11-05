@@ -8,6 +8,11 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.24.0 (6-noyabr)
+Mini-app sahifasini saqlash
+Yangi:
+- Mini-app dasturchi panelida yangi "Nusxa" bo'limi: ochiq mini-appning ochiq qismi (HTML, CSS, skriptlar, rasmlar) papkaga saqlanadi va offlayn ochiladi. Shaxsiy ma'lumot (initData, cookie) yuborilmaydi.
+
 ## 1.23.0 (6-noyabr)
 Akkauntlar soni 16 taga yetdi
 O'zgardi:
