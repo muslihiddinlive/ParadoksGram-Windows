@@ -8,6 +8,12 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.29.0 (6-noyabr)
+Asos Telegram Desktop 7.3.5 ga yangilandi
+Yangi:
+- Telegram Desktop 7.3.1 dan 7.3.5 gacha barcha yangiliklar va tuzatishlar qo'shildi.
+- Barcha ParadoksGram funksiyalari saqlab qolindi.
+
 ## 1.28.0 (5-noyabr)
 Stiker saqlash: shu stiker yoki butun to'plam
 

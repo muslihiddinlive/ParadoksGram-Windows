@@ -383,7 +383,7 @@ void AddPhotoActions(
 			&st::menuIconSaveImage);
 		menu->addAction(tr::lng_context_copy_image(tr::now), [=] {
 			const auto item = photo->owner().message(contextId);
-			if (!list->showCopyMediaRestriction(item)) {
+			if (item && !list->showCopyMediaRestriction(item)) {
 				CopyImage(photo);
 			}
 		}, &st::menuIconCopy);
@@ -545,17 +545,11 @@ void AddPostLinkAction(
 		&& !request.link->copyToClipboardContextItemText().isEmpty()) {
 		return;
 	}
-	const auto itemId = item->fullId();
-	const auto context = request.view
-		? request.view->context()
-		: Context::History;
-	const auto controller = request.navigation->parentController();
-	menu->addAction(
-		(item->history()->peer->isMegagroup()
-			? tr::lng_context_copy_message_link
-			: tr::lng_context_copy_post_link)(tr::now),
-		[=] { CopyPostLink(controller, itemId, context); },
-		&st::menuIconLink);
+	AddPostLinkAction(
+		menu,
+		request.navigation->parentController(),
+		item,
+		(request.view ? request.view->context() : Context::History));
 }
 
 MessageIdsList ExtractIdsList(const SelectedItems &items) {
@@ -860,7 +854,7 @@ bool AddReplyToMessageAction(
 	const auto &quote = request.quote;
 	auto text = (todoListTaskId
 		? tr::lng_context_reply_to_task
-		: quote.highlight.quote.empty()
+		: !quote
 		? tr::lng_context_reply_msg
 		: tr::lng_context_quote_and_reply)(
 			tr::now,
@@ -871,6 +865,7 @@ bool AddReplyToMessageAction(
 			.quote = quote.highlight.quote,
 			.quoteOffset = quote.highlight.quoteOffset,
 			.todoItemId = todoListTaskId,
+			.richQuote = quote.highlight.richQuote,
 		}, base::IsCtrlPressed());
 	}, &st::menuIconReply);
 	return true;
@@ -1682,6 +1677,23 @@ void EditTagBox(
 
 } // namespace
 
+void AddPostLinkAction(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<Window::SessionController*> controller,
+		not_null<HistoryItem*> item,
+		Context context) {
+	if (!item->hasDirectLink() || IsAnchoredEphemeral(item)) {
+		return;
+	}
+	const auto itemId = item->fullId();
+	menu->addAction(
+		(item->history()->peer->isMegagroup()
+			? tr::lng_context_copy_message_link
+			: tr::lng_context_copy_post_link)(tr::now),
+		[=] { CopyPostLink(controller, itemId, context); },
+		&st::menuIconLink);
+}
+
 std::optional<QString> CurrentVoiceTimecode(FullMsgId itemId) {
 	const auto state = ::Media::Player::instance()->getState(
 		AudioMsgId::Type::Voice);
@@ -1849,6 +1861,7 @@ void FillContextMenuItems(
 			: tr::lng_context_copy_selected_items(tr::now);
 		result->addAction(text, [=] {
 			list->copySelectedText();
+			list->clearSelected();
 		}, &st::menuIconCopy);
 	}
 	if (request.overSelection
@@ -1946,7 +1959,7 @@ void FillContextMenuItems(
 								? MsgId()
 								: item->fullId().msg,
 							translate,
-							list->hasCopyRestriction(view->data())));
+							list->hasCopyRestriction(item)));
 					}
 				}, &st::menuIconTranslate);
 			}
@@ -2391,6 +2404,7 @@ void AddPollActions(
 		not_null<Window::SessionController*> controller,
 		bool skipRetractVote,
 		bool skipViewStats) {
+	const auto itemId = item->fullId();
 	{
 		constexpr auto kRadio = "\xf0\x9f\x94\x98";
 		const auto radio = QString::fromUtf8(kRadio);
@@ -2400,12 +2414,14 @@ void AddPollActions(
 		}
 		if (!Ui::SkipTranslate(text)) {
 			menu->addAction(tr::lng_context_translate(tr::now), [=] {
-				controller->show(Box(
-					Ui::TranslateBox,
-					item->history()->peer,
-					MsgId(),
-					std::move(text),
-					item->forbidsForward()));
+				if (const auto item = poll->owner().message(itemId)) {
+					controller->show(Box(
+						Ui::TranslateBox,
+						item->history()->peer,
+						MsgId(),
+						std::move(text),
+						item->forbidsForward()));
+				}
 			}, &st::menuIconTranslate);
 		}
 	}
@@ -2416,7 +2432,6 @@ void AddPollActions(
 		&& (context != Context::ChatPreview)) {
 		return;
 	}
-	const auto itemId = item->fullId();
 	if (poll->canViewStats() && item->isRegular() && !skipViewStats) {
 		menu->addAction(tr::lng_polls_view_stats(tr::now), [=] {
 			ShowPollStatsBox(controller, itemId);
@@ -2477,10 +2492,11 @@ void AddSaveSoundForNotifications(
 		return;
 	}
 	const auto show = controller->uiShow();
+	const auto itemId = item->fullId();
 	menu->addAction(tr::lng_context_save_custom_sound(tr::now), [=] {
 		Api::ToggleSavedRingtone(
 			document,
-			item->fullId(),
+			itemId,
 			[=] { show->showToast(
 				tr::lng_ringtones_toast_added(tr::now)); },
 			true);
@@ -2769,8 +2785,8 @@ void ShowWhoReactedMenu(
 		int addedToBottom = 0;
 	};
 	const auto itemId = item->fullId();
+	const auto originPeer = item->history()->peer;
 	const auto participantChosen = [=](Ui::WhoReadParticipant who) {
-		const auto originPeer = item->history()->peer;
 		const auto participant = originPeer->owner().peer(PeerId(who.id));
 		Reactions::ShowReactionParticipantInfo(
 			controller,
@@ -2782,7 +2798,7 @@ void ShowWhoReactedMenu(
 	const auto moderateReactionChosen = MakeModerateReactionChosen(
 		controller,
 		itemId,
-		item->history()->peer,
+		originPeer,
 		[=] {
 			if (*menu) {
 				(*menu)->hideMenu();
