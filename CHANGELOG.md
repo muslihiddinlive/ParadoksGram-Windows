@@ -8,6 +8,9 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.18.0 (5-noyabr)
+Asos Telegram Desktop 7.3.5 ga yangilandi
+
 ## 1.17.3 (4-noyabr)
 Chatni klonlash tezlashtirildi
 
