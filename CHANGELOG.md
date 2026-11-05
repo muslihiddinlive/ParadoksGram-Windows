@@ -8,6 +8,21 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.20.0 (5-noyabr)
+Tushunarli radar, yashirin chatlar oynasi, hato hisoboti, story'da musiqa
+Yangi:
+- Yashirin chatlar endi alohida oynada ochiladi: avatar, nom va oxirgi xabar bilan, "Chiqarish" tugmasi bor.
+- Yashirin chatlar uchun birinchi marta himoya o'rnatganda PIN yoki chizma (nuqtalarni ulab chizish) tanlanadi. Keyin Sozlamalar → Maxfiylik → "Chat qulfi" dan o'zgartirish mumkin.
+- Hato haqida xabar yozish oynasi: nima bo'lganini yozish, rasm, skrinshot yoki fayl biriktirish mumkin.
+- ParadoksGram bo'limida qidiruv: funksiya nomi yoki tavsifi bo'yicha topadi.
+- Story: rasm ustiga musiqa qo'yish (qaysi soniyadan boshlanishi, uzunligi va balandligi tanlanadi).
+O'zgardi:
+- O'chirilgan va tahrirlangan xabarlar oynalari qayta ishlandi: har xabar alohida kartochkada, kim yozgani, qachon yozilgani va qachon o'chirilgani aniq ko'rsatiladi. "Oldin" va "Hozir" matnlari ajratilgan.
+- Ovoz effektini tanlash endi bosganda aylanmaydi, variantlari bor chiroyli oynada ochiladi.
+- Mini-app proxy olib tashlandi.
+Tuzatildi:
+- Jonli efir boshlashda "STORY_LIVE_ALREADY" xatosi: endi oldingi efirni tugatish yoki uning kalitini olish taklif qilinadi.
+
 ## 1.19.0 (4-noyabr)
 Mini-app dasturchilari uchun: bridge jurnali, initData, DevTools
 

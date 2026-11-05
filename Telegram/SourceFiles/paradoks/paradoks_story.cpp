@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "paradoks/paradoks_story.h"
 
+#include "paradoks/paradoks_config.h"
+
 #include "api/api_updates.h"
 #include "apiwrap.h"
 #include "base/random.h"
@@ -30,6 +32,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "ui/rp_widget.h"
 #include "ui/vertical_list.h"
+#include "core/file_utilities.h"
+#include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/labels.h"
@@ -538,6 +542,42 @@ void SendStill(
 	});
 }
 
+// A photo for a story with sound: fitted into a 9:16 frame over its own
+// blurred copy.
+[[nodiscard]] QImage MakePhotoFrame(const QImage &image) {
+	auto result = QImage(
+		kStillWidth,
+		kStillHeight,
+		QImage::Format_ARGB32_Premultiplied);
+	result.fill(Qt::black);
+	auto p = QPainter(&result);
+	auto hq = PainterHighQualityEnabler(p);
+	const auto blurred = image.scaled(
+		24,
+		42,
+		Qt::IgnoreAspectRatio,
+		Qt::SmoothTransformation);
+	p.drawImage(
+		QRect(0, 0, kStillWidth, kStillHeight),
+		blurred);
+	p.fillRect(
+		QRect(0, 0, kStillWidth, kStillHeight),
+		QColor(0, 0, 0, 90));
+	const auto size = image.size().scaled(
+		kStillWidth,
+		kStillHeight,
+		Qt::KeepAspectRatio);
+	p.drawImage(
+		QRect(
+			(kStillWidth - size.width()) / 2,
+			(kStillHeight - size.height()) / 2,
+			size.width(),
+			size.height()),
+		image);
+	p.end();
+	return result;
+}
+
 void OptionsBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller,
@@ -628,6 +668,102 @@ void OptionsBox(
 			st::defaultBoxCheckbox),
 		st::boxRowPadding);
 
+	// Music over a photo (Instagram style): the photo becomes a short video.
+	struct MusicState {
+		QString path;
+		std::optional<AudioInfo> info;
+		rpl::variable<QString> label = u"Musiqa tanlanmagan"_q;
+	};
+	const auto music = box->lifetime().make_state<MusicState>();
+	const auto isPhoto = !media.video && !media.still;
+	Ui::InputField *musicStart = nullptr;
+	std::shared_ptr<Ui::RadiobuttonGroup> musicLength;
+	std::shared_ptr<Ui::RadiobuttonGroup> musicVolume;
+	if (isPhoto) {
+		Ui::AddSkip(container);
+		Ui::AddSubsectionTitle(
+			container,
+			rpl::single(u"Musiqa (ixtiyoriy)"_q));
+		box->addRow(
+			object_ptr<Ui::FlatLabel>(
+				box,
+				music->label.value(),
+				st::boxLabel),
+			st::boxRowPadding);
+		const auto pick = box->addRow(
+			object_ptr<Ui::LinkButton>(
+				box,
+				u"Audio fayl tanlash (rasm ustiga qo'yiladi)"_q),
+			st::boxRowPadding);
+		pick->setClickedCallback([=] {
+			FileDialog::GetOpenPath(
+				box,
+				u"Audio faylni tanlang"_q,
+				FileDialog::AllFilesFilter(),
+				crl::guard(box, [=](const FileDialog::OpenResult &result) {
+					if (result.paths.isEmpty()) {
+						return;
+					}
+					const auto path = result.paths.front();
+					auto info = ReadAudioInfo(path);
+					if (!info) {
+						controller->showToast(
+							u"Bu fayldan ovoz o'qib bo'lmadi"_q);
+						return;
+					}
+					music->path = path;
+					music->info = std::move(info);
+					music->label = u"Musiqa: %1 (%2 soniya)"_q.arg(
+						QFileInfo(path).fileName()).arg(
+						music->info->duration / 1000);
+				}));
+		});
+		const auto remove = box->addRow(
+			object_ptr<Ui::LinkButton>(box, u"Musiqani olib tashlash"_q),
+			st::boxRowPadding);
+		remove->setClickedCallback([=] {
+			music->path.clear();
+			music->info = std::nullopt;
+			music->label = u"Musiqa tanlanmagan"_q;
+		});
+		musicStart = box->addRow(
+			object_ptr<Ui::InputField>(
+				box,
+				st::defaultInputField,
+				Ui::InputField::Mode::SingleLine,
+				rpl::single(u"Musiqa qaysi soniyadan boshlansin"_q),
+				u"0"_q),
+			st::boxRowPadding);
+		Ui::AddSubsectionTitle(
+			container,
+			rpl::single(u"Musiqa uzunligi"_q));
+		musicLength = std::make_shared<Ui::RadiobuttonGroup>(30);
+		for (const auto seconds : { 15, 30, 60 }) {
+			box->addRow(
+				object_ptr<Ui::Radiobutton>(
+					box,
+					musicLength,
+					seconds,
+					u"%1 soniya"_q.arg(seconds),
+					st::defaultBoxCheckbox),
+				st::boxRowPadding);
+		}
+		Ui::AddSubsectionTitle(
+			container,
+			rpl::single(u"Musiqa balandligi"_q));
+		musicVolume = std::make_shared<Ui::RadiobuttonGroup>(100);
+		for (const auto percent : { 100, 60, 30 }) {
+			box->addRow(
+				object_ptr<Ui::Radiobutton>(
+					box,
+					musicVolume,
+					percent,
+					u"%1%"_q.arg(percent),
+					st::defaultBoxCheckbox),
+				st::boxRowPadding);
+		}
+	}
+
 	box->addButton(rpl::single(u"Qo'yish"_q), [=] {
 		auto options = Options{
 			.caption = input->getLastText().trimmed(),
@@ -636,6 +772,35 @@ void OptionsBox(
 			.noForwards = noForwards->checked(),
 			.pinned = pinned->checked(),
 		};
+		if (isPhoto && music->info && !music->path.isEmpty()) {
+			const auto total = music->info->duration;
+			const auto start = std::clamp(
+				crl::time(musicStart->getLastText().trimmed().toInt()) * 1000,
+				crl::time(0),
+				std::max(total - 1000, crl::time(0)));
+			const auto length = std::min({
+				crl::time(musicLength->current()) * 1000,
+				total - start,
+				kStillMaxDuration,
+			});
+			auto tracks = std::vector<Media::Encode::MusicTrack>();
+			tracks.push_back({
+				.path = music->path,
+				.from = start,
+				.till = start + length,
+				.volume = musicVolume->current() / 100.,
+			});
+			auto job = std::make_shared<Media::Encode::Job>();
+			job->source = Media::Encode::StillSource{
+				.base = MakePhotoFrame(image),
+				.duration = length,
+				.fps = 30.,
+				.music = std::move(tracks),
+			};
+			box->closeBox();
+			SendStill(controller, job, image, options);
+			return;
+		}
 		box->closeBox();
 		if (media.still) {
 			SendStill(controller, media.still, image, options);
@@ -787,6 +952,7 @@ void LiveInfoBox(
 					MTP_long(live.accessHash))
 			)).done([=](const MTPUpdates &result) {
 				session->api().applyUpdates(result);
+				SaveLive(std::nullopt);
 				toast(u"Efir tugatildi"_q);
 			}).fail([=](const MTP::Error &error) {
 				toast(u"Tugatib bo'lmadi: "_q + error.type());
@@ -819,11 +985,85 @@ void RequestLiveKey(
 	}).send();
 }
 
+[[nodiscard]] std::optional<LiveCall> LoadLive() {
+	const auto parts = StringSetting(u"story/live"_q).split(':');
+	if (parts.size() != 2) {
+		return std::nullopt;
+	}
+	const auto id = parts[0].toULongLong();
+	const auto hash = parts[1].toULongLong();
+	return id ? std::make_optional(LiveCall{ id, hash }) : std::nullopt;
+}
+
+void SaveLive(const std::optional<LiveCall> &call) {
+	SetStringSetting(
+		u"story/live"_q,
+		call
+			? (QString::number(call->id) + ':'
+				+ QString::number(call->accessHash))
+			: QString());
+}
+
+void StartLiveRequest(
+	not_null<Window::SessionController*> controller,
+	const Options &options,
+	int stars,
+	bool retried = false);
+
+// A live stream is already running (maybe forgotten): offer to take its
+// key or to end it and start a new one.
+void LiveBusyBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		Options options,
+		int stars) {
+	box->setTitle(rpl::single(u"Efir allaqachon ketyapti"_q));
+	const auto session = &controller->session();
+	const auto toast = MakeToast(controller);
+	const auto known = LoadLive();
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			rpl::single(u"Sizda tugatilmagan jonli efir bor (oldingi "
+				"urinishdan qolgan bo'lishi mumkin). Telegram bir vaqtda "
+				"bitta efirga ruxsat beradi.\n\n"_q
+				+ (known
+					? u"Eskisini tugatib, yangisini boshlashingiz yoki "
+						"mavjud efirning kalitini olishingiz mumkin."_q
+					: u"Mavjud efirning kalitini olib, shu efirni davom "
+						"ettirishingiz mumkin."_q)),
+			st::boxLabel),
+		st::boxRowPadding);
+	box->addButton(rpl::single(u"Mavjud efir kalitini olish"_q), [=] {
+		box->closeBox();
+		RequestLiveKey(controller, known, stars);
+	});
+	if (known) {
+		const auto live = *known;
+		box->addButton(rpl::single(u"Tugatib, yangisini boshlash"_q), [=] {
+			box->closeBox();
+			session->api().request(MTPphone_DiscardGroupCall(
+				MTP_inputGroupCall(
+					MTP_long(live.id),
+					MTP_long(live.accessHash))
+			)).done([=](const MTPUpdates &result) {
+				session->api().applyUpdates(result);
+				SaveLive(std::nullopt);
+				StartLiveRequest(controller, options, stars, true);
+			}).fail([=](const MTP::Error &error) {
+				SaveLive(std::nullopt);
+				toast(u"Eskisini tugatib bo'lmadi: "_q + error.type());
+			}).send();
+		});
+	}
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
 void StartLiveRequest(
 		not_null<Window::SessionController*> controller,
 		const Options &options,
 		int stars,
-		bool retried = false) {
+		bool retried) {
 	const auto session = &controller->session();
 	const auto toast = MakeToast(controller);
 	if (!session->premium()) {
@@ -855,6 +1095,7 @@ void StartLiveRequest(
 		MTP_long(stars)
 	)).done([=](const MTPUpdates &result) {
 		const auto call = FindLiveCall(result);
+		SaveLive(call);
 		session->api().applyUpdates(result);
 		toast(u"Jonli efir boshlandi"_q);
 		RequestLiveKey(controller, call, stars);
@@ -867,6 +1108,10 @@ void StartLiveRequest(
 				? u"Jonli efir"_q
 				: QString();
 			StartLiveRequest(controller, other, stars, true);
+			return;
+		}
+		if (error.type().startsWith(u"STORY_LIVE_ALREADY"_q)) {
+			controller->show(Box(LiveBusyBox, controller, options, stars));
 			return;
 		}
 		toast(u"Efirni boshlab bo'lmadi: "_q + error.type());
