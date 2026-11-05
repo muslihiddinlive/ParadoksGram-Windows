@@ -19,7 +19,15 @@ class PopupMenu;
 class Show;
 } // namespace Ui
 
+class DocumentData;
+
 namespace Paradoks {
+
+// Stickers: asks whether to save only this sticker or the whole pack.
+void SaveStickerChoice(
+	not_null<Window::SessionController*> controller,
+	not_null<DocumentData*> document,
+	Fn<void()> saveSingle);
 
 void SettingsBox(
 	not_null<Ui::GenericBox*> box,

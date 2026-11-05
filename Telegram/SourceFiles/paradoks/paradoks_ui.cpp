@@ -22,7 +22,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_webdev.h"
 #include "window/window_session_controller.h"
 #include "base/unixtime.h"
+#include "apiwrap.h"
+#include "base/call_delayed.h"
 #include "data/data_document.h"
+#include "data/data_file_origin.h"
+#include "data/stickers/data_stickers_set.h"
 #include "data/data_channel.h"
 #include "data/data_user.h"
 #include "data/data_peer.h"
@@ -61,6 +65,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_settings.h"
 
 #include <algorithm>
+#include <QtCore/QDir>
 #include <QtCore/QFileInfo>
 #include <QtCore/QDateTime>
 #include <QtCore/QRegularExpression>
@@ -1674,6 +1679,170 @@ void AddInspectAction(
 		QGuiApplication::clipboard()->setText(link);
 		show->showToast(u"Havola nusxalandi"_q);
 	}, &st::menuIconCopy);
+}
+
+namespace {
+
+struct PackSave {
+	std::vector<not_null<DocumentData*>> documents;
+	std::vector<QString> paths;
+	QString folder;
+};
+
+[[nodiscard]] QString PackFileName(QString text) {
+	for (const auto ch : u"\\/:*?\"<>|"_q) {
+		text.replace(ch, QChar('_'));
+	}
+	return text.trimmed();
+}
+
+[[nodiscard]] QString PackExtension(not_null<DocumentData*> document) {
+	const auto sticker = document->sticker();
+	if (sticker && sticker->isWebm()) {
+		return u"webm"_q;
+	} else if (sticker && sticker->isLottie()) {
+		return u"tgs"_q;
+	}
+	return u"webp"_q;
+}
+
+void PollPackSave(
+		not_null<Main::Session*> session,
+		std::shared_ptr<Ui::Show> show,
+		std::shared_ptr<PackSave> state,
+		int attempt) {
+	auto busy = false;
+	for (const auto &document : state->documents) {
+		if (document->loading()) {
+			busy = true;
+			break;
+		}
+	}
+	if (!busy || attempt >= 240) {
+		auto saved = 0;
+		for (const auto &path : state->paths) {
+			if (QFileInfo::exists(path)) {
+				++saved;
+			}
+		}
+		show->showToast(u"Saqlandi: %1 / %2 ta stiker. Papka: %3"_q.arg(
+			QString::number(saved),
+			QString::number(int(state->paths.size())),
+			state->folder));
+		return;
+	}
+	base::call_delayed(500, session, [=] {
+		PollPackSave(session, show, state, attempt + 1);
+	});
+}
+
+void SavePackTo(
+		not_null<Window::SessionController*> controller,
+		const StickerSetIdentifier &set,
+		const QString &title,
+		const std::vector<not_null<DocumentData*>> &documents,
+		const QString &parentFolder) {
+	const auto session = &controller->session();
+	const auto show = controller->uiShow();
+	auto name = PackFileName(title.isEmpty() ? set.shortName : title);
+	if (name.isEmpty()) {
+		name = u"stikerlar"_q;
+	}
+	const auto folder = u"%1/%2"_q.arg(parentFolder, name);
+	if (!QDir().mkpath(folder)) {
+		show->showToast(u"Papka yaratib bo'lmadi"_q);
+		return;
+	}
+	auto state = std::make_shared<PackSave>();
+	state->folder = QDir::toNativeSeparators(folder);
+	auto index = 0;
+	for (const auto &document : documents) {
+		const auto path = u"%1/%2.%3"_q.arg(
+			folder,
+			QString::number(++index).rightJustified(3, QChar('0')),
+			PackExtension(document));
+		state->documents.push_back(document);
+		state->paths.push_back(path);
+		document->save(Data::FileOriginStickerSet(set.id, set.accessHash), path);
+	}
+	show->showToast(u"%1 ta stiker yuklanmoqda..."_q.arg(
+		QString::number(int(documents.size()))));
+	PollPackSave(session, show, std::move(state), 0);
+}
+
+void SaveWholePack(
+		not_null<Window::SessionController*> controller,
+		not_null<DocumentData*> document) {
+	const auto sticker = document->sticker();
+	if (!sticker || !sticker->set) {
+		return;
+	}
+	const auto set = sticker->set;
+	const auto session = &document->session();
+	const auto show = controller->uiShow();
+	const auto weak = base::make_weak(controller);
+	show->showToast(u"To'plam olinmoqda..."_q);
+	session->api().request(MTPmessages_GetStickerSet(
+		Data::InputStickerSet(set),
+		MTP_int(0)
+	)).done([=](const MTPmessages_StickerSet &result) {
+		result.match([&](const MTPDmessages_stickerSet &data) {
+			const auto strong = weak.get();
+			if (!strong) {
+				return;
+			}
+			auto documents = std::vector<not_null<DocumentData*>>();
+			documents.reserve(data.vdocuments().v.size());
+			for (const auto &item : data.vdocuments().v) {
+				documents.push_back(session->data().processDocument(item));
+			}
+			const auto title = qs(data.vset().data().vtitle());
+			FileDialog::GetFolder(
+				QPointer<QWidget>(strong->widget().get()),
+				u"Stiker to'plami uchun papka"_q,
+				QString(),
+				[=](QString &&folder) {
+					if (const auto again = weak.get()) {
+						SavePackTo(again, set, title, documents, folder);
+					}
+				});
+		}, [&](const MTPDmessages_stickerSetNotModified &) {
+		});
+	}).fail([=](const MTP::Error &error) {
+		show->showToast(u"To'plamni olib bo'lmadi: "_q + error.type());
+	}).send();
+}
+
+void StickerSaveBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		not_null<DocumentData*> document,
+		Fn<void()> saveSingle) {
+	box->setTitle(rpl::single(u"Stikerni saqlash"_q));
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			rpl::single(u"Nimani saqlaymiz?"_q),
+			st::boxLabel),
+		st::boxRowPadding);
+	box->addButton(rpl::single(u"Butun to'plam"_q), [=] {
+		box->closeBox();
+		SaveWholePack(controller, document);
+	});
+	box->addButton(rpl::single(u"Shu stiker"_q), [=] {
+		box->closeBox();
+		saveSingle();
+	});
+	box->addLeftButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
+} // namespace
+
+void SaveStickerChoice(
+		not_null<Window::SessionController*> controller,
+		not_null<DocumentData*> document,
+		Fn<void()> saveSingle) {
+	controller->show(Box(StickerSaveBox, controller, document, saveSingle));
 }
 
 } // namespace Paradoks

@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
+#include "paradoks/paradoks_ui.h"
 #include "ui/toast/toast.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
@@ -61,7 +62,16 @@ void AddSaveDocumentAction(
 			: document->sticker()
 			? tr::lng_context_save_image(tr::now)
 			: tr::lng_context_save_file(tr::now);
-		addAction(text, saveAs, &st::menuIconDownload);
+		const auto stickerPack = document->sticker()
+			&& document->sticker()->set;
+		addAction(text, stickerPack
+			? Fn<void()>([=] {
+				Paradoks::SaveStickerChoice(
+					controller,
+					document,
+					[=] { saveAs(); });
+			})
+			: Fn<void()>(saveAs), &st::menuIconDownload);
 		return;
 	}
 	const auto fill = [&](not_null<Ui::PopupMenu*> menu) {
