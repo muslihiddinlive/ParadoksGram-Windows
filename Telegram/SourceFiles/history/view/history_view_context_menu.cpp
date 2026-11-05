@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "paradoks/paradoks_media.h"
 #include "paradoks/paradoks_ui.h"
+#include "paradoks/paradoks_meta.h"
 #include "paradoks/paradoks_viewer.h"
 
 #include "api/api_attached_stickers.h"
@@ -1421,6 +1422,10 @@ void AddMessageActions(
 			list->controller()->uiShow(),
 			request.item);
 		Paradoks::Viewer::AddViewerAction(
+			menu,
+			list->controller()->uiShow(),
+			request.item);
+		Paradoks::Meta::AddMetaAction(
 			menu,
 			list->controller()->uiShow(),
 			request.item);

@@ -8,6 +8,11 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.27.0 (6-noyabr)
+Metadata (EXIF) ko'rgich
+Yangi:
+- Rasm fayliga o'ng tugma bosib "Metadata (EXIF) ni ko'rish": qurilma modeli, sana, dastur va (o'chirilmagan bo'lsa) GPS joylashuv ko'rinadi. Telegram rasm sifatida yuborilganda metamalumotni o'chiradi, fayl sifatida yuborilganda qoladi.
+
 ## 1.26.0 (6-noyabr)
 Nashriyotchi nomi
 O'zgardi:
