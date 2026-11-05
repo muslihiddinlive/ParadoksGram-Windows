@@ -5,7 +5,7 @@
 AppId={{B7D1C0A2-5E1F-4F6A-9C0B-3D8E2A9F7C11}
 AppName=ParadoksGram
 AppVersion=build-{#Build}
-AppPublisher=Paradoks Hub Community
+AppPublisher=ParadoksGram Community
 DefaultDirName={localappdata}\Programs\ParadoksGram
 DefaultGroupName=ParadoksGram
 DisableProgramGroupPage=yes

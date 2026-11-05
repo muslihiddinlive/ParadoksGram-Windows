@@ -259,6 +259,22 @@ jobs:
           fi
           exit 0
 
+      - name: Sign Telegram.exe (only when a certificate secret is set).
+        shell: bash
+        env:
+          WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX }}
+          WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+        run: |
+          if [ -z "$WIN_CERT_PFX" ]; then
+            echo "No WIN_CERT_PFX secret: the exe stays unsigned (publisher shows as Unknown)."
+            exit 0
+          fi
+          signtool=$(ls /c/Program\ Files\ \(x86\)/Windows\ Kits/10/bin/*/x64/signtool.exe | sort | tail -n 1)
+          echo "$WIN_CERT_PFX" | base64 -d > "$RUNNER_TEMP/cert.pfx"
+          exe=$(find /d/out -maxdepth 3 -name Telegram.exe | head -n 1)
+          "$signtool" sign //f "$(cygpath -w "$RUNNER_TEMP/cert.pfx")" //p "$WIN_CERT_PASSWORD" //fd sha256 //tr http://timestamp.digicert.com //td sha256 "$(cygpath -w "$exe")"
+          rm -f "$RUNNER_TEMP/cert.pfx"
+
       - name: Package.
         shell: bash
         run: |
@@ -296,6 +312,21 @@ jobs:
             "/DOutDir=$env:GITHUB_WORKSPACE" `
             "$repo\.github\installer\paradoksgram.iss"
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
+
+      - name: Sign installer (only when a certificate secret is set).
+        continue-on-error: true
+        shell: bash
+        env:
+          WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX }}
+          WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+        run: |
+          if [ -z "$WIN_CERT_PFX" ] || [ ! -f ParadoksGram-Setup.exe ]; then
+            exit 0
+          fi
+          signtool=$(ls /c/Program\ Files\ \(x86\)/Windows\ Kits/10/bin/*/x64/signtool.exe | sort | tail -n 1)
+          echo "$WIN_CERT_PFX" | base64 -d > "$RUNNER_TEMP/cert.pfx"
+          "$signtool" sign //f "$(cygpath -w "$RUNNER_TEMP/cert.pfx")" //p "$WIN_CERT_PASSWORD" //fd sha256 //tr http://timestamp.digicert.com //td sha256 ParadoksGram-Setup.exe
+          rm -f "$RUNNER_TEMP/cert.pfx"
 
       - uses: actions/upload-artifact@v7
         name: Upload artifact.
