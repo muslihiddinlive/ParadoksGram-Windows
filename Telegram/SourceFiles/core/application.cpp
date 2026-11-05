@@ -572,7 +572,6 @@ void Application::startSettingsAndBackground() {
 		Window::Theme::ToggleNightMode();
 		Window::Theme::KeepApplied();
 	}
-	Paradoks::ApplyWebProxy();
 	Paradoks::WebDev::ApplyDevTools();
 	Paradoks::Hotkey::Start();
 	Paradoks::Crash::Install();

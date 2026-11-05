@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_report.h"
 
 #include "base/timer.h"
+#include "base/weak_ptr.h"
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "data/data_user.h"
@@ -18,8 +19,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_debug.h"
 #include "paradoks/paradoks_update.h"
+#include "core/file_utilities.h"
+#include "lang/lang_keys.h"
+#include "ui/layers/generic_box.h"
+#include "ui/widgets/buttons.h"
+#include "ui/widgets/fields/input_field.h"
+#include "ui/widgets/labels.h"
+#include "window/window_session_controller.h"
+#include "styles/style_boxes.h"
+#include "styles/style_layers.h"
 
 #include <QtCore/QDateTime>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
+#include <QtCore/QMimeDatabase>
 #include <QtCore/QLocale>
 #include <QtCore/QRegularExpression>
 #include <QtCore/QSysInfo>
@@ -39,6 +52,9 @@ constexpr auto kStuckFor = crl::time(45'000);
 constexpr auto kCooldown = crl::time(10 * 60'000);
 constexpr auto kPoll = crl::time(5'000);
 constexpr auto kMaxSummary = 2500;
+constexpr auto kMaxComment = 3000;
+constexpr auto kMaxFiles = 5;
+constexpr auto kMaxFileSize = 8 * 1024 * 1024;
 
 [[nodiscard]] QNetworkAccessManager *Network() {
 	// Intentionally never destroyed: it must outlive QApplication teardown.
@@ -171,7 +187,21 @@ void Send(
 		const QString &kind,
 		const QString &details,
 		Fn<void(bool)> done) {
-	const auto summary = Summary(kind, details).left(kMaxSummary);
+	SendWithUser(session, kind, details, QString(), {}, std::move(done));
+}
+
+void SendWithUser(
+		Main::Session *session,
+		const QString &kind,
+		const QString &details,
+		const QString &comment,
+		const QStringList &files,
+		Fn<void(bool)> done) {
+	auto summary = Summary(kind, details).left(kMaxSummary);
+	if (!comment.trimmed().isEmpty()) {
+		summary += u"\n\nFoydalanuvchi izohi:\n"_q
+			+ comment.trimmed().left(kMaxComment);
+	}
 	const auto log = Scrub(
 		details + u"\n\n===== PARADOKS DEBUG LOG =====\n"_q + Debug::Tail());
 	const auto account = AccountText(session);
@@ -193,6 +223,27 @@ void Send(
 	file.setHeader(QNetworkRequest::ContentTypeHeader, u"text/plain"_q);
 	file.setBody(log.toUtf8());
 	multi->append(file);
+	auto count = 0;
+	for (const auto &path : files) {
+		if (++count > kMaxFiles) {
+			break;
+		}
+		auto source = QFile(path);
+		if (QFileInfo(path).size() > kMaxFileSize
+			|| !source.open(QIODevice::ReadOnly)) {
+			continue;
+		}
+		auto part = QHttpPart();
+		part.setHeader(
+			QNetworkRequest::ContentDispositionHeader,
+			u"form-data; name=\"files\"; filename=\"%1\""_q.arg(
+				QFileInfo(path).fileName().replace('"', '_')));
+		part.setHeader(
+			QNetworkRequest::ContentTypeHeader,
+			QMimeDatabase().mimeTypeForFile(path).name());
+		part.setBody(source.readAll());
+		multi->append(part);
+	}
 
 	auto request = QNetworkRequest(QUrl(QString::fromLatin1(kEndpoint)));
 	request.setRawHeader("User-Agent", "ParadoksGram-Windows");
@@ -211,6 +262,115 @@ void Send(
 			done(ok);
 		}
 	});
+}
+
+void ComposeBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller) {
+	box->setTitle(rpl::single(u"Hato haqida xabar"_q));
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			rpl::single(u"Nima bo'lganini o'z so'zlaringiz bilan yozing va "
+				"kerak bo'lsa rasm, skrinshot yoki fayl biriktiring. "
+				"Qurilma ma'lumoti va jurnal avtomatik qo'shiladi."_q),
+			st::boxLabel),
+		st::boxRowPadding);
+	const auto input = box->addRow(
+		object_ptr<Ui::InputField>(
+			box,
+			st::defaultInputField,
+			Ui::InputField::Mode::MultiLine,
+			rpl::single(u"Nima bo'ldi? (izoh)"_q)),
+		st::boxRowPadding);
+	input->setMaxHeight(160);
+
+	struct State {
+		QStringList files;
+		rpl::variable<QString> info = u"Biriktirilgan fayl yo'q"_q;
+	};
+	const auto state = box->lifetime().make_state<State>();
+	const auto refresh = [=] {
+		auto names = QStringList();
+		for (const auto &path : state->files) {
+			names.push_back(QFileInfo(path).fileName());
+		}
+		state->info = names.isEmpty()
+			? u"Biriktirilgan fayl yo'q"_q
+			: u"Biriktirilgan (%1): %2"_q.arg(
+				names.size()).arg(names.join(u", "_q));
+	};
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			state->info.value(),
+			st::boxLabel),
+		st::boxRowPadding);
+	const auto attach = box->addRow(
+		object_ptr<Ui::LinkButton>(
+			box,
+			u"Rasm yoki fayl biriktirish"_q),
+		st::boxRowPadding);
+	attach->setClickedCallback([=] {
+		if (state->files.size() >= kMaxFiles) {
+			controller->showToast(u"Eng ko'pi bilan %1 ta fayl"_q.arg(
+				kMaxFiles));
+			return;
+		}
+		FileDialog::GetOpenPaths(
+			box,
+			u"Faylni tanlang"_q,
+			FileDialog::AllFilesFilter(),
+			crl::guard(box, [=](const FileDialog::OpenResult &result) {
+				for (const auto &path : result.paths) {
+					if (QFileInfo(path).size() > kMaxFileSize) {
+						controller->showToast(
+							u"Fayl 8 MB dan katta: "_q
+							+ QFileInfo(path).fileName());
+					} else if (!state->files.contains(path)
+						&& state->files.size() < kMaxFiles) {
+						state->files.push_back(path);
+					}
+				}
+				refresh();
+			}));
+	});
+	const auto clear = box->addRow(
+		object_ptr<Ui::LinkButton>(box, u"Biriktirilganlarni tozalash"_q),
+		st::boxRowPadding);
+	clear->setClickedCallback([=] {
+		state->files.clear();
+		refresh();
+	});
+
+	const auto sending = box->lifetime().make_state<bool>(false);
+	box->addButton(rpl::single(u"Yuborish"_q), [=] {
+		if (*sending) {
+			return;
+		}
+		const auto comment = input->getLastText().trimmed();
+		if (comment.isEmpty() && state->files.isEmpty()) {
+			input->showError();
+			return;
+		}
+		*sending = true;
+		const auto weak = base::make_weak(controller);
+		SendWithUser(
+			&controller->session(),
+			u"qo'lda yuborildi"_q,
+			u"Foydalanuvchi sozlamalardan yubordi."_q,
+			comment,
+			state->files,
+			[=](bool ok) {
+				if (const auto strong = weak.get()) {
+					strong->showToast(ok
+						? u"Hato hisoboti yuborildi. Rahmat!"_q
+						: u"Hisobotni yuborib bo'lmadi (internet?)"_q);
+				}
+			});
+		box->closeBox();
+	});
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 }
 
 void WatchConnection(not_null<Main::Session*> session) {

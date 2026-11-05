@@ -40,11 +40,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item_components.h"
 #include "lang/lang_cloud_manager.h"
 #include "lang/lang_keys.h"
+#include "ui/boxes/single_choice_box.h"
 #include "ui/layers/generic_box.h"
 #include "ui/layers/show.h"
 #include "settings/settings_common.h"
 #include "ui/painter.h"
 #include "ui/vertical_list.h"
+#include "ui/wrap/slide_wrap.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/rp_widget.h"
@@ -58,6 +60,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 
+#include <algorithm>
 #include <QtCore/QFileInfo>
 #include <QtCore/QDateTime>
 #include <QtCore/QRegularExpression>
@@ -79,13 +82,58 @@ constexpr auto kPreviewHeight = 180;
 
 bool LastWasDivider = true;
 
+using Wrap = Ui::SlideWrap<Ui::VerticalLayout>;
+
+// Everything on the settings page is wrapped so the search can hide it.
+struct SearchRow {
+	not_null<Wrap*> wrap;
+	std::shared_ptr<QString> title;
+	QString description;
+};
+struct SearchRegistry {
+	std::vector<SearchRow> rows;
+	std::vector<not_null<Wrap*>> chrome;
+	std::vector<size_t> pending;
+};
+SearchRegistry *CurrentSearch = nullptr;
+
+[[nodiscard]] not_null<Wrap*> AddWrap(
+		not_null<Ui::VerticalLayout*> container) {
+	return container->add(object_ptr<Wrap>(
+		container,
+		object_ptr<Ui::VerticalLayout>(container)));
+}
+
+// A chrome block (title, divider, hint) that hides while searching.
+[[nodiscard]] not_null<Ui::VerticalLayout*> AddChrome(
+		not_null<Ui::VerticalLayout*> container) {
+	const auto wrap = AddWrap(container);
+	if (CurrentSearch) {
+		CurrentSearch->chrome.push_back(wrap);
+	}
+	return wrap->entity();
+}
+
+void AddGap(not_null<Ui::VerticalLayout*> container) {
+	Ui::AddSkip(AddChrome(container));
+}
+
 not_null<Settings::Button*> AddRow(
 		not_null<Ui::GenericBox*> box,
 		rpl::producer<QString> text,
 		const style::icon *icon) {
 	LastWasDivider = false;
+	const auto wrap = AddWrap(box->verticalLayout());
+	if (CurrentSearch) {
+		const auto title = std::make_shared<QString>();
+		rpl::duplicate(text) | rpl::on_next([=](QString value) {
+			*title = std::move(value);
+		}, wrap->lifetime());
+		CurrentSearch->pending.push_back(CurrentSearch->rows.size());
+		CurrentSearch->rows.push_back({ wrap, title, QString() });
+	}
 	return Settings::AddButtonWithIcon(
-		box->verticalLayout(),
+		wrap->entity(),
 		std::move(text),
 		st::settingsButton,
 		Settings::IconDescriptor{ icon });
@@ -113,7 +161,6 @@ not_null<Settings::Button*> AddRow(
 	case Flag::DeviceCommands: return &st::menuIconBotCommands;
 	case Flag::AdOnInteraction: return &st::menuIconReactions;
 	case Flag::HiddenInSearch: return &st::menuIconSearch;
-	case Flag::WebProxy: return &st::menuIconIpAddress;
 	case Flag::WebDevTools: return &st::menuIconExperimental;
 	default: return &st::menuIconSettings;
 	}
@@ -123,18 +170,20 @@ not_null<Settings::Button*> AddRow(
 void AddSection(
 		not_null<Ui::VerticalLayout*> container,
 		const QString &title) {
+	const auto inner = AddChrome(container);
 	if (!LastWasDivider) {
-		Ui::AddSkip(container);
-		Ui::AddDivider(container);
+		Ui::AddSkip(inner);
+		Ui::AddDivider(inner);
 	}
 	LastWasDivider = false;
-	Ui::AddSkip(container);
-	Ui::AddSubsectionTitle(container, rpl::single(title));
+	Ui::AddSkip(inner);
+	Ui::AddSubsectionTitle(inner, rpl::single(title));
 }
 
 // Logo, name and version at the top, like a profile header.
 void AddHero(not_null<Ui::VerticalLayout*> container) {
-	const auto hero = container->add(object_ptr<Ui::RpWidget>(container));
+	const auto hero = AddChrome(container)->add(
+		object_ptr<Ui::RpWidget>(container));
 	const auto logo = hero->lifetime().make_state<QImage>(
 		QImage(u":/gui/art/logo_256_no_margin.png"_q));
 	constexpr auto kHeroHeight = 168;
@@ -208,7 +257,13 @@ void AddShortcutRow(
 
 void AddText(not_null<Ui::GenericBox*> box, const QString &text) {
 	LastWasDivider = true;
-	Ui::AddDividerText(box->verticalLayout(), rpl::single(text));
+	if (CurrentSearch) {
+		for (const auto index : CurrentSearch->pending) {
+			CurrentSearch->rows[index].description = text;
+		}
+		CurrentSearch->pending.clear();
+	}
+	Ui::AddDividerText(AddChrome(box->verticalLayout()), rpl::single(text));
 }
 
 [[nodiscard]] QStringList SplitWords(const QString &text) {
@@ -454,10 +509,79 @@ void EditsBox(
 		QString());
 }
 
+// A rounded card: one entry of a list.
+[[nodiscard]] not_null<Ui::VerticalLayout*> AddCard(
+		not_null<Ui::VerticalLayout*> container) {
+	const auto card = container->add(
+		object_ptr<Ui::VerticalLayout>(container),
+		style::margins(
+			st::boxRowPadding.left(),
+			6,
+			st::boxRowPadding.right(),
+			6));
+	card->paintRequest(
+	) | rpl::on_next([=] {
+		auto p = QPainter(card);
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::windowBgOver);
+		p.drawRoundedRect(QRectF(card->rect()), 12., 12.);
+	}, card->lifetime());
+	return card;
+}
+
+[[nodiscard]] style::margins CardInner() {
+	return style::margins(12, 6, 12, 6);
+}
+
+void CardTitle(not_null<Ui::VerticalLayout*> card, const QString &text) {
+	auto title = TextWithEntities{ text };
+	title.entities.push_back(
+		EntityInText(EntityType::Bold, 0, int(text.size())));
+	card->add(
+		object_ptr<Ui::FlatLabel>(
+			card,
+			rpl::single(std::move(title)),
+			st::boxLabel),
+		CardInner());
+}
+
+void CardText(not_null<Ui::VerticalLayout*> card, const QString &text) {
+	card->add(
+		object_ptr<Ui::FlatLabel>(card, text, st::boxLabel),
+		CardInner());
+}
+
+void CardNote(not_null<Ui::VerticalLayout*> card, const QString &text) {
+	card->add(
+		object_ptr<Ui::FlatLabel>(card, text, st::boxDividerLabel),
+		CardInner());
+}
+
+void CardLink(
+		not_null<Ui::VerticalLayout*> card,
+		const QString &text,
+		Fn<void()> callback) {
+	const auto link = card->add(
+		object_ptr<Ui::LinkButton>(card, text),
+		CardInner());
+	link->setClickedCallback(std::move(callback));
+}
+
+void AddEmptyNote(
+		not_null<Ui::VerticalLayout*> list,
+		const QString &query,
+		const QString &empty) {
+	AddLine(
+		list,
+		query.isEmpty() ? empty : u"Hech narsa topilmadi."_q);
+}
+
 void RadarBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller) {
-	box->setTitle(rpl::single(u"O'chirilganlar radari"_q));
+	box->setTitle(rpl::single(u"O'chirilgan xabarlar"_q));
+	box->setWidth(st::boxWideWidth);
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 
 	struct State {
@@ -467,9 +591,14 @@ void RadarBox(
 	};
 	const auto state = box->lifetime().make_state<State>();
 	const auto filterLabel = box->lifetime().make_state<
-		rpl::variable<QString>>(u"Filtr: hammasi"_q);
+		rpl::variable<QString>>(u"Ko'rsatish: hammasi"_q);
 	const auto session = &controller->session();
 
+	Ui::AddDividerText(
+		box->verticalLayout(),
+		rpl::single(u"Boshqalar chatda o'chirib yuborgan xabarlar shu yerda "
+			"qoladi. Eng yangisi tepada. Har bir xabarda kim yozgani, "
+			"qachon yozilgani va qachon o'chirilgani ko'rsatiladi."_q));
 	AddSearch(box, [=](QString query) {
 		state->query = std::move(query);
 		state->rebuild();
@@ -477,10 +606,10 @@ void RadarBox(
 	box->addLeftButton(filterLabel->value(), [=] {
 		state->filter = (state->filter + 1) % 3;
 		*filterLabel = (state->filter == 0)
-			? u"Filtr: hammasi"_q
+			? u"Ko'rsatish: hammasi"_q
 			: (state->filter == 1)
-			? u"Filtr: media bor"_q
-			: u"Filtr: media saqlanmagan"_q;
+			? u"Ko'rsatish: rasm/fayllilar"_q
+			: u"Ko'rsatish: fayli saqlanmaganlar"_q;
 		state->rebuild();
 	});
 
@@ -510,19 +639,28 @@ void RadarBox(
 				continue;
 			}
 			++shown;
-			const auto who = entry.chat.isEmpty() || entry.chat == entry.from
-				? entry.from
-				: (entry.from + u" ("_q + entry.chat + ')');
-			AddLine(list, u"%1\n%2: %3\n(o'chirildi: %4)"_q.arg(
+			const auto card = AddCard(list);
+			const auto chat = entry.chat.isEmpty() ? entry.from : entry.chat;
+			CardTitle(card, chat.isEmpty() ? u"(noma'lum chat)"_q : chat);
+			if (!entry.from.isEmpty() && entry.from != chat) {
+				CardNote(card, u"Yozgan odam: "_q + entry.from);
+			}
+			CardText(card, entry.text.isEmpty()
+				? (entry.hasMedia
+					? u"[Rasm, video yoki fayl. Matn yo'q]"_q
+					: u"[Matnsiz xabar]"_q)
+				: entry.text);
+			CardNote(card, u"Yozilgan: %1\nO'chirilgan: %2"_q.arg(
 				FormatDate(entry.date),
-				who,
-				entry.text.isEmpty()
-					? (entry.hasMedia ? u"(media)"_q : u"(matnsiz)"_q)
-					: entry.text,
 				FormatDate(entry.deletedAt)));
+			if (entry.hasMedia) {
+				CardNote(card, (!saved.isEmpty() || copy)
+					? u"Fayl saqlab qo'yilgan"_q
+					: u"Fayl saqlanmagan (yuklab olinmagan edi)"_q);
+			}
 			const auto peerId = PeerId(entry.peer);
 			const auto msgId = MsgId(entry.id);
-			AddLink(list, u"Xabarga o'tish"_q, [=] {
+			CardLink(card, u"Chatda ko'rish"_q, [=] {
 				controller->showPeerHistory(
 					peerId,
 					Window::SectionShow::Way::Forward,
@@ -530,13 +668,13 @@ void RadarBox(
 				box->closeBox();
 			});
 			if (!saved.isEmpty()) {
-				AddLink(list, u"Saqlangan nusxani ochish"_q, [=] {
+				CardLink(card, u"Saqlangan faylni ochish"_q, [=] {
 					File::Launch(saved);
 				});
 			} else if (copy) {
 				const auto copyPeer = PeerId(copy->first);
 				const auto copyMsg = MsgId(copy->second);
-				AddLink(list, u"Bazadagi nusxani ochish"_q, [=] {
+				CardLink(card, u"Bazadagi nusxani ochish"_q, [=] {
 					controller->showPeerHistory(
 						copyPeer,
 						Window::SectionShow::Way::Forward,
@@ -544,7 +682,7 @@ void RadarBox(
 					box->closeBox();
 				});
 			} else if (entry.hasMedia) {
-				AddLink(list, u"Qayta urinish (media)"_q, [=] {
+				CardLink(card, u"Faylni qayta yuklashga urinish"_q, [=] {
 					if (const auto item = session->data().message(
 							peerId,
 							msgId)) {
@@ -556,10 +694,13 @@ void RadarBox(
 					}
 				});
 			}
-			Ui::AddSkip(list);
 		}
 		if (!shown) {
-			AddLine(list, u"Hech narsa topilmadi."_q);
+			AddEmptyNote(
+				list,
+				state->query,
+				u"Hozircha o'chirilgan xabar yo'q. Kimdir xabarini "
+				"o'chirsa, shu yerda paydo bo'ladi."_q);
 		}
 	};
 	state->rebuild();
@@ -568,7 +709,8 @@ void RadarBox(
 void EditedRadarBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller) {
-	box->setTitle(rpl::single(u"Tahrirlanganlar radari"_q));
+	box->setTitle(rpl::single(u"Tahrirlangan xabarlar"_q));
+	box->setWidth(st::boxWideWidth);
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 
 	struct State {
@@ -578,6 +720,11 @@ void EditedRadarBox(
 	const auto state = box->lifetime().make_state<State>();
 	const auto session = &controller->session();
 
+	Ui::AddDividerText(
+		box->verticalLayout(),
+		rpl::single(u"Kimdir xabarini tahrir qilsa, eski va yangi matn "
+			"shu yerda ko'rinadi. \"Oldin\" bu tahrirdan avvalgi matn, "
+			"\"Hozir\" esa hozirgi matn."_q));
 	AddSearch(box, [=](QString query) {
 		state->query = std::move(query);
 		state->rebuild();
@@ -609,26 +756,28 @@ void EditedRadarBox(
 			const auto &last = entry.versions.back();
 			const auto item = session->data().message(peerId, msgId);
 			const auto when = entry.changedAt ? entry.changedAt : last.date;
-			AddLine(list, u"%1\n%2 · %3\n%4 marta tahrirlangan"_q.arg(
-				FormatDate(when),
-				entry.chat.isEmpty() ? u"(chat)"_q : entry.chat,
-				entry.from.isEmpty() ? u"(noma'lum)"_q : entry.from).arg(
-				int(entry.versions.size())));
-			if (item) {
-				auto change = TextWithEntities{ u"So'nggi o'zgarish:  "_q };
-				change.append(DiffText(last.text, item->originalText().text));
-				list->add(
-					object_ptr<Ui::FlatLabel>(
-						list,
-						rpl::single(std::move(change)),
-						st::boxLabel),
-					st::boxRowPadding);
-			} else {
-				AddLine(list, u"Oldingi variant:\n"_q
-					+ (last.text.isEmpty() ? u"(matnsiz)"_q : last.text));
+			const auto card = AddCard(list);
+			const auto chat = entry.chat.isEmpty() ? entry.from : entry.chat;
+			CardTitle(card, chat.isEmpty() ? u"(noma'lum chat)"_q : chat);
+			if (!entry.from.isEmpty() && entry.from != chat) {
+				CardNote(card, u"Yozgan odam: "_q + entry.from);
 			}
+			CardNote(card, u"Oldin:"_q);
+			CardText(card, last.text.isEmpty()
+				? u"[Matnsiz]"_q
+				: last.text);
+			CardNote(card, u"Hozir:"_q);
+			if (item) {
+				const auto now = item->originalText().text;
+				CardText(card, now.isEmpty() ? u"[Matnsiz]"_q : now);
+			} else {
+				CardText(card, u"(xabar hozir yuklanmagan. Chatda "
+					"ko'rish tugmasini bosing)"_q);
+			}
+			CardNote(card, u"Oxirgi tahrir: %1\nJami %2 marta tahrirlangan"_q.arg(
+				FormatDate(when)).arg(int(entry.versions.size())));
 			const auto versions = entry.versions;
-			AddLink(list, u"Hamma versiyalar"_q, [=] {
+			CardLink(card, u"Barcha tahrirlarni ko'rish"_q, [=] {
 				const auto live = session->data().message(peerId, msgId);
 				box->getDelegate()->show(Box(
 					EditsBox,
@@ -636,17 +785,20 @@ void EditedRadarBox(
 					live ? live->originalText() : TextWithEntities(),
 					live != nullptr));
 			});
-			AddLink(list, u"Xabarga o'tish"_q, [=] {
+			CardLink(card, u"Chatda ko'rish"_q, [=] {
 				controller->showPeerHistory(
 					peerId,
 					Window::SectionShow::Way::Forward,
 					msgId);
 				box->closeBox();
 			});
-			Ui::AddSkip(list);
 		}
 		if (!shown) {
-			AddLine(list, u"Hech narsa topilmadi."_q);
+			AddEmptyNote(
+				list,
+				state->query,
+				u"Hozircha tahrirlangan xabar yo'q. Kimdir xabarini "
+				"tahrir qilsa, shu yerda paydo bo'ladi."_q);
 		}
 	};
 	state->rebuild();
@@ -702,41 +854,6 @@ void TimeBox(
 			return;
 		}
 		save(hours * 60 + minutes);
-		box->closeBox();
-	});
-	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
-}
-
-void WebProxyBox(
-		not_null<Ui::GenericBox*> box,
-		not_null<Window::SessionController*> controller) {
-	box->setTitle(rpl::single(u"Mini-app proxy manzili"_q));
-	const auto input = box->addRow(
-		object_ptr<Ui::InputField>(
-			box,
-			st::defaultInputField,
-			Ui::InputField::Mode::SingleLine,
-			rpl::single(u"socks5://host:port"_q),
-			StringSetting(u"web/proxy"_q)),
-		st::boxRowPadding);
-	box->addRow(
-		object_ptr<Ui::FlatLabel>(
-			box,
-			rpl::single(u"Masalan: socks5://1.2.3.4:1080 yoki "
-				"http://1.2.3.4:8080. Login va parol qo'llanmaydi."_q),
-			st::boxLabel),
-		st::boxRowPadding);
-	box->addButton(rpl::single(u"Saqlash"_q), [=] {
-		const auto text = input->getLastText().trimmed();
-		const auto proxy = NormalizeWebProxy(text);
-		if (!text.isEmpty() && proxy.isEmpty()) {
-			controller->showToast(
-				u"Manzil noto'g'ri. Misol: socks5://1.2.3.4:1080"_q);
-			return;
-		}
-		SetStringSetting(u"web/proxy"_q, proxy);
-		controller->showToast(
-			u"Saqlandi. Ilovani qayta ishga tushirgach kuchga kiradi"_q);
 		box->closeBox();
 	});
 	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
@@ -858,17 +975,9 @@ void AddBackupSection(
 		box,
 		Flag::ErrorReports,
 		u"Xatolarni avtomatik yuborish"_q);
-	const auto sendButton = AddRow(box, rpl::single(u"Hato haqida xabar yuborish"_q), &st::menuIconReport);
+	const auto sendButton = AddRow(box, rpl::single(u"Hato haqida xabar yozish (izoh, rasm, fayl)"_q), &st::menuIconReport);
 	sendButton->setClickedCallback([=] {
-		Report::Send(
-			&controller->session(),
-			u"qo'lda yuborildi"_q,
-			u"Foydalanuvchi sozlamalardan yubordi."_q,
-			[=](bool ok) {
-				controller->showToast(ok
-					? u"Hato hisoboti yuborildi"_q
-					: u"Hisobotni yuborib bo'lmadi (internet?)"_q);
-			});
+		controller->show(Box(Report::ComposeBox, controller));
 	});
 	AddText(
 		box,
@@ -940,6 +1049,14 @@ void SettingsBox(
 
 	const auto container = box->verticalLayout();
 	LastWasDivider = true;
+	const auto registry = std::make_shared<SearchRegistry>();
+	CurrentSearch = registry.get();
+	const auto searchField = box->addRow(
+		object_ptr<Ui::InputField>(
+			box,
+			st::defaultInputField,
+			rpl::single(u"Funksiyani qidirish (nomi yoki tavsifi)..."_q)),
+		st::boxRowPadding);
 	AddHero(container);
 
 	const auto updateTitle = [] {
@@ -1001,29 +1118,6 @@ void SettingsBox(
 		"Server manzili ilovada emas, GitHub build'ida beriladi (ADS_SERVER_URL). "
 		"Serverga faqat reklama raqami, hodisa turi (ko'rildi / bosildi) va "
 		"tasodifiy anonim raqam yuboriladi, Telegram ma'lumotlaringiz emas."_q);
-
-	AddSection(container, u"Mini-app proxy"_q);
-	AddToggle(
-		box,
-		Flag::WebProxy,
-		u"Mini-applar proxy orqali ochilsin"_q);
-	const auto webProxy = AddRow(
-		box,
-		rpl::single(StringSetting(u"web/proxy"_q).isEmpty()
-			? u"Proxy manzili: o'rnatilmagan"_q
-			: u"Proxy manzili: "_q + StringSetting(u"web/proxy"_q)),
-		&st::menuIconNetwork);
-	webProxy->setClickedCallback([=] {
-		controller->show(Box(WebProxyBox, controller));
-	});
-	AddText(
-		box,
-		u"Mini-applar (webapp) va ilova ichidagi veb oynalar internetga "
-		"qurilmangizning IP manzili o'rniga siz kiritgan proxy orqali "
-		"chiqadi, shuning uchun saytlar boshqa IP va joylashuvni ko'radi. "
-		"Telegram chatlari bunga tegmaydi. O'zgarish ilovani qayta ishga "
-		"tushirgach kuchga kiradi. Login/parolli proxy bu yerda "
-		"qo'llanmaydi."_q);
 
 	AddSection(container, u"Mini-app dasturchilari uchun"_q);
 	const auto devPanel = AddRow(
@@ -1146,14 +1240,28 @@ void SettingsBox(
 		rpl::variable<QString>>(voiceTitle());
 	const auto voice = AddRow(box, voiceLabel->value(), &st::menuIconSoundOn);
 	voice->setClickedCallback([=] {
-		const auto next = (int(Voice::CurrentMode()) + 1)
-			% (int(Voice::Mode::Villager) + 1);
-		Voice::SetMode(Voice::Mode(next));
-		*voiceLabel = voiceTitle();
+		static const auto options = std::vector<QString>{
+			u"O'chiq (ovoz o'zgarmaydi)"_q,
+			u"Robot (metallik, mexanik ovoz)"_q,
+			u"G'or (aks-sadoli, chuqur ovoz)"_q,
+			u"Minecraft Villager (baland, kulgili ovoz)"_q,
+		};
+		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
+			.title = rpl::single(u"Ovozli xabar effekti"_q),
+			.options = options,
+			.initialSelection = int(Voice::CurrentMode()),
+			.callback = Fn<void(int)>([=](int value) {
+				Voice::SetMode(Voice::Mode(std::clamp(
+					value,
+					0,
+					int(Voice::Mode::Villager))));
+				*voiceLabel = voiceTitle();
+			}),
+		}));
 	});
 	AddText(
 		box,
-		u"Bosib Off, Robot, G'or va Minecraft Villager orasida almashtiring. "
+		u"Effektni tanlash uchun yuqoridagi qatorni bosing. "
 		"Effekt yangi yozilayotgan ovozli xabarlarga qo'llanadi."_q);
 
 	AddSection(container, u"Maxfiylik"_q);
@@ -1180,7 +1288,7 @@ void SettingsBox(
 		"PIN ni yozing, yoki \u2630 menyudagi Ghost mode belgisini uzoq bosib "
 		"turing, yoki yuqoridagi shortcut."_q);
 
-	Ui::AddSkip(container);
+	AddGap(container);
 	const auto uzbek = AddRow(box, rpl::single(u"O'zbek tili (to'liq, beta)"_q), &st::menuIconTranslate);
 	uzbek->setClickedCallback([=] {
 		Lang::CurrentCloudManager().switchToLanguage(u"uz-beta"_q);
@@ -1191,12 +1299,12 @@ void SettingsBox(
 		"(t.me/setlanguage/uz-beta). Tilni Sozlamalar → Til bo'limidan "
 		"qaytarish mumkin."_q);
 
-	Ui::AddSkip(container);
-	const auto radar = AddRow(box, rpl::single(u"O'chirilganlar radari"_q), &st::menuIconGroupLog);
+	AddGap(container);
+	const auto radar = AddRow(box, rpl::single(u"O'chirilgan xabarlar (kim nimani o'chirdi)"_q), &st::menuIconGroupLog);
 	radar->setClickedCallback([=] {
 		box->getDelegate()->show(Box(RadarBox, controller));
 	});
-	const auto editedRadar = AddRow(box, rpl::single(u"Tahrirlanganlar radari"_q), &st::menuIconEdit);
+	const auto editedRadar = AddRow(box, rpl::single(u"Tahrirlangan xabarlar (oldin va hozir)"_q), &st::menuIconEdit);
 	editedRadar->setClickedCallback([=] {
 		box->getDelegate()->show(Box(EditedRadarBox, controller));
 	});
@@ -1204,6 +1312,27 @@ void SettingsBox(
 		box,
 		u"Sozlamalar qayta ishga tushirmasdan darhol ishlaydi. "
 		"Ba'zi o'zgarishlar (masalan, profildagi ID) keyingi ochilishda ko'rinadi."_q);
+	const auto noMatch = AddWrap(container);
+	AddLine(noMatch->entity(), u"Hech narsa topilmadi."_q);
+	noMatch->hide(anim::type::instant);
+	CurrentSearch = nullptr;
+	searchField->changes(
+	) | rpl::on_next([=] {
+		const auto query = searchField->getLastText().trimmed();
+		const auto searching = !query.isEmpty();
+		auto any = false;
+		for (const auto &row : registry->rows) {
+			const auto match = !searching
+				|| row.title->contains(query, Qt::CaseInsensitive)
+				|| row.description.contains(query, Qt::CaseInsensitive);
+			any = any || match;
+			row.wrap->toggle(match, anim::type::instant);
+		}
+		for (const auto &chrome : registry->chrome) {
+			chrome->toggle(!searching, anim::type::instant);
+		}
+		noMatch->toggle(searching && !any, anim::type::instant);
+	}, searchField->lifetime());
 }
 
 void AddIdActions(

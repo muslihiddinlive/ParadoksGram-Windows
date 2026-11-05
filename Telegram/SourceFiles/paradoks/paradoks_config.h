@@ -32,7 +32,6 @@ enum class Flag : uchar {
 	DeviceCommands,
 	AdOnInteraction,
 	HiddenInSearch,
-	WebProxy,
 	WebDevTools,
 
 	kCount,
@@ -73,11 +72,6 @@ void SetAppIconVariant(int variant);
 void SetIntSetting(const QString &key, int value);
 [[nodiscard]] QString StringSetting(const QString &key);
 void SetStringSetting(const QString &key, const QString &value);
-
-// Mini-app (web view) proxy: "scheme://host:port" (http, https, socks4,
-// socks5). Applied to the web view engine when the app starts.
-[[nodiscard]] QString NormalizeWebProxy(const QString &text);
-void ApplyWebProxy();
 
 [[nodiscard]] int VoiceEffect();
 void SetVoiceEffect(int mode);
