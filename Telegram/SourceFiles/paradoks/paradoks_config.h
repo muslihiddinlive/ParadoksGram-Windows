@@ -73,6 +73,11 @@ void SetIntSetting(const QString &key, int value);
 [[nodiscard]] QString StringSetting(const QString &key);
 void SetStringSetting(const QString &key, const QString &value);
 
+// Download parallelism: 0 normal, 1 fast, 2 weak internet (more streams,
+// smaller amount waited per stream).
+[[nodiscard]] int DownloadMode();
+void SetDownloadMode(int mode);
+
 [[nodiscard]] int VoiceEffect();
 void SetVoiceEffect(int mode);
 

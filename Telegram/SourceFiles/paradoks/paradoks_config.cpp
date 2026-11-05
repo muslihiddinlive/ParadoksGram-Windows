@@ -62,6 +62,7 @@ std::array<std::atomic<bool>, kCount> Values;
 std::atomic<int> ScheduleStart = kDefaultScheduleStart;
 std::atomic<int> ScheduleEnd = kDefaultScheduleEnd;
 std::atomic<int> VoiceMode = 0;
+std::atomic<int> DownloadModeValue = -1;
 std::atomic<int> IconVariant = 0;
 std::once_flag LoadFlag;
 
@@ -229,6 +230,21 @@ void SetAppIconVariant(int variant) {
 	IconVariant = variant;
 	auto settings = QSettings(FilePath(), QSettings::IniFormat);
 	settings.setValue(u"app_icon"_q, variant);
+}
+
+int DownloadMode() {
+	auto value = DownloadModeValue.load();
+	if (value < 0) {
+		value = std::clamp(IntSetting(u"download_mode"_q, 0), 0, 2);
+		DownloadModeValue.store(value);
+	}
+	return value;
+}
+
+void SetDownloadMode(int mode) {
+	mode = std::clamp(mode, 0, 2);
+	DownloadModeValue.store(mode);
+	SetIntSetting(u"download_mode"_q, mode);
 }
 
 int IntSetting(const QString &key, int byDefault) {

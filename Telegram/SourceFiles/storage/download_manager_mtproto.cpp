@@ -5,6 +5,7 @@ the official desktop application for the Telegram messaging service.
 For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
+#include "paradoks/paradoks_config.h"
 #include "storage/download_manager_mtproto.h"
 
 #include "mtproto/facade.h"
@@ -20,10 +21,23 @@ namespace Storage {
 namespace {
 
 constexpr auto kKillSessionTimeout = 15 * crl::time(1000);
-constexpr auto kStartWaitedInSession = 8 * kDownloadPartSize;
-constexpr auto kMaxWaitedInSession = 32 * kDownloadPartSize;
-constexpr auto kStartSessionsCount = 4;
-constexpr auto kMaxSessionsCount = 16;
+// ParadoksGram: the balance depends on the "download mode" setting.
+[[nodiscard]] int StartWaitedInSession() {
+	return ((Paradoks::DownloadMode() == 2) ? 4 : 8) * kDownloadPartSize;
+}
+[[nodiscard]] int MaxWaitedInSession() {
+	return ((Paradoks::DownloadMode() == 2) ? 12 : 32) * kDownloadPartSize;
+}
+[[nodiscard]] int StartSessionsCount() {
+	return (Paradoks::DownloadMode() == 0) ? 4 : 8;
+}
+[[nodiscard]] int MaxSessionsCount() {
+	switch (Paradoks::DownloadMode()) {
+	case 1: return 24;
+	case 2: return 32;
+	}
+	return 16;
+}
 constexpr auto kMaxTrackedSessionRemoves = 64;
 constexpr auto kRetryAddSessionTimeout = 8 * crl::time(1000);
 constexpr auto kRetryAddSessionSuccesses = 3;
@@ -110,11 +124,11 @@ void DownloadManagerMtproto::Queue::removeSession(int index) {
 }
 
 DownloadManagerMtproto::DcSessionBalanceData::DcSessionBalanceData()
-: maxWaitedAmount(kStartWaitedInSession) {
+: maxWaitedAmount(StartWaitedInSession()) {
 }
 
 DownloadManagerMtproto::DcBalanceData::DcBalanceData()
-: sessions(kStartSessionsCount) {
+: sessions(StartSessionsCount()) {
 }
 
 DownloadManagerMtproto::DownloadManagerMtproto(not_null<ApiWrap*> api)
@@ -190,7 +204,7 @@ bool DownloadManagerMtproto::trySendNextPart(MTP::DcId dcId, Queue &queue) {
 		const auto proj = [](const DcSessionBalanceData &data) {
 			return (data.requested < data.maxWaitedAmount)
 				? data.requested
-				: kMaxWaitedInSession;
+				: MaxWaitedInSession();
 		};
 		const auto j = ranges::min_element(sessions, ranges::less(), proj);
 		return (j->requested + nextSize <= j->maxWaitedAmount)
@@ -263,10 +277,10 @@ void DownloadManagerMtproto::requestSucceeded(
 		return;
 	}
 	if (amountAtRequestStart == data.maxWaitedAmount
-		&& data.maxWaitedAmount < kMaxWaitedInSession) {
+		&& data.maxWaitedAmount < MaxWaitedInSession()) {
 		data.maxWaitedAmount = std::min(
 			data.maxWaitedAmount + partSize,
-			kMaxWaitedInSession);
+			MaxWaitedInSession());
 		DEBUG_LOG(("Download (%1,%2) increased max waited amount %3."
 			).arg(dcId
 			).arg(index
@@ -286,7 +300,7 @@ void DownloadManagerMtproto::requestSucceeded(
 	if (dc.timeouts > 0) {
 		--dc.timeouts;
 		return;
-	} else if (dc.sessions.size() == kMaxSessionsCount) {
+	} else if (int(dc.sessions.size()) >= MaxSessionsCount()) {
 		return;
 	}
 	const auto now = crl::now();
@@ -325,7 +339,7 @@ void DownloadManagerMtproto::sessionTimedOut(MTP::DcId dcId, int index) {
 	for (auto &session : dc.sessions) {
 		session.successes = 0;
 	}
-	if (dc.sessions.size() == kStartSessionsCount
+	if (int(dc.sessions.size()) <= StartSessionsCount()
 		|| ++dc.timeouts < kRemoveSessionAfterTimeouts) {
 		return;
 	}
@@ -335,7 +349,9 @@ void DownloadManagerMtproto::sessionTimedOut(MTP::DcId dcId, int index) {
 
 void DownloadManagerMtproto::removeSession(MTP::DcId dcId) {
 	auto &dc = _balanceData[dcId];
-	Assert(dc.sessions.size() > kStartSessionsCount);
+	if (int(dc.sessions.size()) <= StartSessionsCount()) {
+		return;
+	}
 	const auto index = int(dc.sessions.size() - 1);
 	DEBUG_LOG(("Download (%1,%2) removing, now sessions: %3"
 		).arg(dcId
@@ -353,9 +369,10 @@ void DownloadManagerMtproto::removeSession(MTP::DcId dcId) {
 	auto &session = dc.sessions.back();
 
 	// Make sure we don't send anything to that session while redirecting.
-	session.requested += kMaxWaitedInSession * kMaxSessionsCount;
+	const auto sentinel = MaxWaitedInSession() * MaxSessionsCount();
+	session.requested += sentinel;
 	queue.removeSession(index);
-	Assert(session.requested == kMaxWaitedInSession * kMaxSessionsCount);
+	Assert(session.requested == sentinel);
 
 	dc.sessions.pop_back();
 	api().instance().killSession(MTP::downloadDcId(dcId, index));

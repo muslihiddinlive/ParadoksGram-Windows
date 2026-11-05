@@ -125,6 +125,17 @@ namespace {
 constexpr auto kDay = Data::WorkingInterval::kDay;
 constexpr auto kPeerIdLinkIndex = uint16(1);
 
+// Bot API style id: channels and supergroups start with -100, basic
+// groups with -, users are plain.
+[[nodiscard]] QString FullPeerIdText(not_null<PeerData*> peer) {
+	const auto raw = QString::number(peer->id.value & PeerId::kChatTypeMask);
+	return peer->isChannel()
+		? (u"-100"_q + raw)
+		: peer->isChat()
+		? (u"-"_q + raw)
+		: raw;
+}
+
 class DraggableUrlClickHandler final : public UrlClickHandler {
 public:
 	DraggableUrlClickHandler(const QString &url, QString drag)
@@ -246,9 +257,8 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 				value.append("\n\n");
 			}
 			value.append(Italic(u"id: "_q));
-			const auto raw = peer->id.value & PeerId::kChatTypeMask;
 			value.append(Link(
-				Italic(Lang::FormatCountDecimal(raw)),
+				Italic(FullPeerIdText(peer)),
 				kPeerIdLinkIndex));
 		}
 		if (ShowChannelJoinedBelowAbout.value()) {
@@ -285,7 +295,7 @@ void SetupAboutPeerIdDrag(
 	if (!ShowPeerId()) {
 		return;
 	}
-	const auto id = QString::number(peer->id.value & PeerId::kChatTypeMask);
+	const auto id = FullPeerIdText(peer);
 	AboutValue(
 		peer
 	) | rpl::on_next([=] {

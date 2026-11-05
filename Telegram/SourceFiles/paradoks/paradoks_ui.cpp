@@ -1219,6 +1219,44 @@ void SettingsBox(
 		box,
 		u"Telegram'dan fayl yuklab olinayotganda tezlik shu yerda "
 		"ko'rinadi. Eng yuqori qiymatni nolga tushirish uchun bosing."_q);
+	const auto modeTitle = [] {
+		const auto mode = DownloadMode();
+		return u"Yuklash rejimi: "_q
+			+ ((mode == 1)
+				? u"tez"_q
+				: (mode == 2)
+				? u"sekin internet uchun"_q
+				: u"oddiy"_q);
+	};
+	const auto modeLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(modeTitle());
+	const auto modeButton = AddRow(box, modeLabel->value(), &st::menuIconDownload);
+	modeButton->setClickedCallback([=] {
+		static const auto options = std::vector<QString>{
+			u"Oddiy (4 dan 16 gacha oqim)"_q,
+			u"Tez (8 dan 24 gacha oqim, yaxshi internet uchun)"_q,
+			u"Sekin internet (8 dan 32 gacha oqim, har oqimda kamroq "
+				"bo'lak)"_q,
+		};
+		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
+			.title = rpl::single(u"Yuklash rejimi"_q),
+			.options = options,
+			.initialSelection = DownloadMode(),
+			.callback = Fn<void(int)>([=](int value) {
+				SetDownloadMode(value);
+				*modeLabel = modeTitle();
+			}),
+		}));
+	});
+	AddText(
+		box,
+		u"Fayl yuklash bir necha oqim (ulanish) orqali parallel ketadi. "
+		"Internet sekin yoki beqaror bo'lsa \"Sekin internet\" rejimini "
+		"tanlang: oqimlar soni ko'payadi, har oqimga kamroq bo'lak "
+		"beriladi, shuning uchun uzilishlar kamroq sezilinadi. Yaxshi "
+		"internetda \"Tez\" rejim tezroq. Juda ko'p oqim Telegram "
+		"cheklovini keltirib chiqarishi mumkin. Yangi yuklashlarga "
+		"qo'llanadi."_q);
 	AddToggle(
 		box,
 		Flag::FinishDownloads,

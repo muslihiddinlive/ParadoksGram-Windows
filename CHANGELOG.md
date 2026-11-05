@@ -8,6 +8,13 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.21.0 (5-noyabr)
+Peer ID to'liq, yuklash rejimi
+O'zgardi:
+- Profildagi ID endi to'liq ko'rinadi: kanal va superguruhlar uchun -100 bilan boshlanadi (masalan -1002144293154), oddiy guruhlar uchun - bilan. Bosganda shu to'liq ID nusxalanadi.
+Yangi:
+- Yuklash rejimi (Sozlamalar → ParadoksGram → Yuklash tezligi): oddiy, tez va sekin internet uchun. Sekin internetda parallel oqimlar soni 32 gacha ko'payadi, har oqimga kamroq bo'lak beriladi.
+
 ## 1.20.0 (5-noyabr)
 Tushunarli radar, yashirin chatlar oynasi, hato hisoboti, story'da musiqa
 Yangi:
