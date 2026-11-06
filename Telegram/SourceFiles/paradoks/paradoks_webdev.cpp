@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_account.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
+#include "window/window_controller.h"
 #include "storage/localimageloader.h"
 #include "storage/storage_media_prepare.h"
 #include "ui/chat/attach/attach_prepare.h"
@@ -41,6 +42,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
+#include <QtWidgets/QMessageBox>
 #include <QtWidgets/QPlainTextEdit>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QTabWidget>
@@ -156,6 +158,64 @@ void Push(bool incoming, const QString &name, QString payload) {
 		result += u"\ntgWebAppThemeParams =\n%1\n"_q.arg(PrettyJson(theme));
 	}
 	return result;
+}
+
+bool CloneBusy = false;
+
+void SendCloneToSavedMessages(
+		const QString &path,
+		const Fn<void(const QString &)> &toast) {
+	const auto account
+		= Core::App().domain().maybeLastOrSomeAuthedAccount();
+	const auto session = account ? account->maybeSession() : nullptr;
+	if (!session) {
+		toast(u"Saved Messages ga yuborib bo'lmadi (akkaunt yo'q)."_q);
+		return;
+	}
+	auto files = Storage::PrepareMediaList(
+		QStringList(path),
+		256,
+		session->premium());
+	if (files.error != Ui::PreparedList::Error::None
+		|| files.files.empty()) {
+		toast(u"Faylni yuborib bo'lmadi (hajm katta bo'lishi mumkin)."_q);
+		return;
+	}
+	files.files.front().caption = TextWithTags{
+		u"Mini-app nusxasi: "_q + QFileInfo(path).fileName(),
+	};
+	session->api().sendFiles(
+		std::move(files),
+		SendMediaType::File,
+		nullptr,
+		Api::SendAction(session->data().history(session->user())));
+	toast(u"Saved Messages ga yuborilmoqda."_q);
+}
+
+void StartClone(bool single) {
+	const auto toast = [](const QString &text) {
+		if (const auto window = Core::App().activePrimaryWindow()) {
+			window->showToast(text);
+		}
+	};
+	if (CloneBusy) {
+		toast(u"Nusxalash davom etyapti..."_q);
+		return;
+	}
+	CloneBusy = true;
+	toast(u"Mini-app nusxalanmoqda..."_q);
+	WebCopy::Start(
+		CurrentUrl,
+		single,
+		[](const QString &) {},
+		[=](const QString &path) {
+			CloneBusy = false;
+			if (path.isEmpty()) {
+				toast(u"Mini-appni nusxalab bo'lmadi."_q);
+				return;
+			}
+			SendCloneToSavedMessages(path, toast);
+		});
 }
 
 void BuildWindow() {
@@ -395,6 +455,37 @@ void Open() {
 		return;
 	}
 	BuildWindow();
+}
+
+void CloneCurrent() {
+	if (CurrentUrl.isEmpty()) {
+		if (const auto window = Core::App().activePrimaryWindow()) {
+			window->showToast(u"Mini-app ochilmagan."_q);
+		}
+		return;
+	}
+	const auto box = new QMessageBox(
+		QMessageBox::Question,
+		u"Mini-appni klonlash"_q,
+		u"Qaysi ko'rinishda saqlaymiz?"_q,
+		QMessageBox::NoButton);
+	box->setAttribute(Qt::WA_DeleteOnClose);
+	const auto zip = box->addButton(
+		u"ZIP (papka tuzilmasi bilan)"_q,
+		QMessageBox::AcceptRole);
+	const auto html = box->addButton(
+		u"Bitta HTML (hammasi ichida)"_q,
+		QMessageBox::AcceptRole);
+	box->addButton(u"Bekor qilish"_q, QMessageBox::RejectRole);
+	QObject::connect(box, &QMessageBox::buttonClicked, box, [=](
+			QAbstractButton *button) {
+		if (button == zip) {
+			StartClone(false);
+		} else if (button == html) {
+			StartClone(true);
+		}
+	});
+	box->show();
 }
 
 void ApplyDevTools() {

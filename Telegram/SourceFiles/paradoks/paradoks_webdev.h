@@ -24,6 +24,10 @@ void SetUrl(const QString &url);
 // Opens (or raises) the developer window.
 void Open();
 
+// Saves the open mini-app page as a ZIP and sends it to Saved Messages
+// (the "Mini-appni nusxalash" item of the mini-app three-dot menu).
+void CloneCurrent();
+
 // Applies the saved "WebView DevTools" switch (call at start).
 void ApplyDevTools();
 void SetDevTools(bool enabled);
