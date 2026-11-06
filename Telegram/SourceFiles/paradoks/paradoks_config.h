@@ -77,6 +77,8 @@ void SetStringSetting(const QString &key, const QString &value);
 // Download parallelism: 0 normal, 1 fast, 2 weak internet (more streams,
 // smaller amount waited per stream).
 [[nodiscard]] int DownloadMode();
+// Same, but "auto" (3) resolved to 0/1/2 by the measured speed.
+[[nodiscard]] int EffectiveDownloadMode();
 void SetDownloadMode(int mode);
 
 [[nodiscard]] int VoiceEffect();

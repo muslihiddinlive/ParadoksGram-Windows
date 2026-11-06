@@ -1228,7 +1228,9 @@ void SettingsBox(
 	const auto modeTitle = [] {
 		const auto mode = DownloadMode();
 		return u"Yuklash rejimi: "_q
-			+ ((mode == 1)
+			+ ((mode == 3)
+				? u"avto"_q
+				: (mode == 1)
 				? u"tez"_q
 				: (mode == 2)
 				? u"sekin internet uchun"_q
@@ -1243,6 +1245,7 @@ void SettingsBox(
 			u"Tez (8 dan 24 gacha oqim, yaxshi internet uchun)"_q,
 			u"Sekin internet (8 dan 32 gacha oqim, har oqimda kamroq "
 				"bo'lak)"_q,
+			u"Avto (tezlikka qarab o'zi tanlaydi)"_q,
 		};
 		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
 			.title = rpl::single(u"Yuklash rejimi"_q),
