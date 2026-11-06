@@ -486,6 +486,19 @@ void EditsBox(
 	box->setTitle(rpl::single(
 		u"Tahrirlar tarixi (%1)"_q.arg(versions.size())));
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+	if (currentKnown) {
+		box->addLeftButton(rpl::single(u"Hammasini nusxalash"_q), [=] {
+			auto all = QString();
+			for (auto i = 0; i != int(versions.size()); ++i) {
+				all += u"%1) %2\n%3\n\n"_q.arg(i + 1).arg(
+					FormatDate(versions[i].date),
+					versions[i].text);
+			}
+			all += u"Hozirgi variant:\n"_q + current.text;
+			QGuiApplication::clipboard()->setText(all);
+			box->showToast(u"Hamma variantlar nusxalandi"_q);
+		});
+	}
 
 	const auto container = box->addRow(
 		object_ptr<Ui::VerticalLayout>(box),
@@ -1439,13 +1452,14 @@ void AddEditHistoryAction(
 		not_null<HistoryItem*> item) {
 	auto versions = EditsFor(item);
 	if (versions.empty()) {
-		if (item->Has<HistoryMessageEdited>() && !item->hideEditedBadge()) {
-			menu->addAction(u"Tahrirlar tarixi (yo'q)"_q, [=] {
-				show->showToast(
-					u"Bu xabar ParadoksGram kuzatuvidan oldin tahrirlangan, "
-					"eski matni saqlanmagan. Keyingi tahrirlar saqlanadi."_q);
-			}, &st::menuIconInfo);
-		}
+		const auto edited = item->Has<HistoryMessageEdited>()
+			&& !item->hideEditedBadge();
+		menu->addAction(u"Tahrirlar tarixi (0)"_q, [=] {
+			show->showToast(edited
+				? u"Bu xabar ParadoksGram kuzatuvidan oldin tahrirlangan, "
+					"eski matni saqlanmagan. Keyingi tahrirlar saqlanadi."_q
+				: u"Bu xabar tahrirlanmagan."_q);
+		}, &st::menuIconInfo);
 		return;
 	}
 	const auto current = item->originalText();
