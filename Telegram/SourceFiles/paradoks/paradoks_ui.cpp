@@ -20,6 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_update.h"
 #include "paradoks/paradoks_voice.h"
 #include "paradoks/paradoks_webdev.h"
+#include "mainwindow.h"
 #include "window/window_session_controller.h"
 #include "base/unixtime.h"
 #include "apiwrap.h"

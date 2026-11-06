@@ -697,7 +697,7 @@ void OptionsBox(
 			st::boxRowPadding);
 		pick->setClickedCallback([=] {
 			FileDialog::GetOpenPath(
-				box,
+				QPointer<QWidget>(box.get()),
 				u"Audio faylni tanlang"_q,
 				FileDialog::AllFilesFilter(),
 				crl::guard(box, [=](const FileDialog::OpenResult &result) {
@@ -817,6 +817,8 @@ struct LiveCall {
 	uint64 id = 0;
 	uint64 accessHash = 0;
 };
+
+void SaveLive(const std::optional<LiveCall> &call);
 
 [[nodiscard]] std::optional<LiveCall> FindLiveCall(const MTPUpdates &result) {
 	const auto scan = [](const QVector<MTPUpdate> &list)

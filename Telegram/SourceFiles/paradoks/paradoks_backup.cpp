@@ -107,7 +107,7 @@ constexpr IntKey kInts[] = {
 			++applied;
 		}
 	}
-	skipped = std::max(0, prefs.size() - applied);
+	skipped = std::max<int>(0, int(prefs.size()) - applied);
 	return applied;
 }
 

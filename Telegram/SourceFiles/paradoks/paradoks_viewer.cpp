@@ -22,7 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QJsonDocument>
 #include <QtCore/QProcess>
 #include <QtCore/QRegularExpression>
-#include <QtCore/QTextCodec>
+#include <QtCore/QStringDecoder>
 #include <QtCore/QXmlStreamReader>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QClipboard>
@@ -359,14 +359,19 @@ constexpr auto kMaxLines = 40000;
 		return QString();
 	}
 	const auto data = file.read(kMaxTextSize);
-	auto state = QTextCodec::ConverterState();
-	const auto utf8 = QTextCodec::codecForName("UTF-8");
-	auto text = utf8
-		? utf8->toUnicode(data.constData(), int(data.size()), &state)
-		: QString::fromUtf8(data);
-	if (state.invalidChars > 0) {
-		if (const auto cyrillic = QTextCodec::codecForName("Windows-1251")) {
-			text = cyrillic->toUnicode(data);
+	auto decoder = QStringDecoder(QStringConverter::Utf8);
+	auto text = QString(decoder(QByteArrayView(data)));
+	if (decoder.hasError()) {
+		text.clear();
+		for (const auto byte : data) {
+			const auto code = uchar(byte);
+			text.append((code >= 0xC0)
+				? QChar(0x0410 + (code - 0xC0))
+				: (code == 0xA8)
+				? QChar(0x0401)
+				: (code == 0xB8)
+				? QChar(0x0451)
+				: QChar(code));
 		}
 	}
 	if (ext == u"json"_q) {

@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QPainter>
 #include "ui/widgets/fields/password_input.h"
 #include "ui/widgets/labels.h"
+#include "window/window_controller.h"
 #include "window/window_session_controller.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"

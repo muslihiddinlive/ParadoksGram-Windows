@@ -318,7 +318,7 @@ void ComposeBox(
 			return;
 		}
 		FileDialog::GetOpenPaths(
-			box,
+			QPointer<QWidget>(box.get()),
 			u"Faylni tanlang"_q,
 			FileDialog::AllFilesFilter(),
 			crl::guard(box, [=](const FileDialog::OpenResult &result) {
