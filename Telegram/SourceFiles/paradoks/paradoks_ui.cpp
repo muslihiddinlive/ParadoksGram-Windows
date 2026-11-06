@@ -485,6 +485,19 @@ void EditsBox(
 	box->setTitle(rpl::single(
 		u"Tahrirlar tarixi (%1)"_q.arg(versions.size())));
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+	if (currentKnown) {
+		box->addLeftButton(rpl::single(u"Hammasini nusxalash"_q), [=] {
+			auto all = QString();
+			for (auto i = 0; i != int(versions.size()); ++i) {
+				all += u"%1) %2\n%3\n\n"_q.arg(i + 1).arg(
+					FormatDate(versions[i].date),
+					versions[i].text);
+			}
+			all += u"Hozirgi variant:\n"_q + current.text;
+			QGuiApplication::clipboard()->setText(all);
+			box->showToast(u"Hamma variantlar nusxalandi"_q);
+		});
+	}
 
 	const auto container = box->addRow(
 		object_ptr<Ui::VerticalLayout>(box),
