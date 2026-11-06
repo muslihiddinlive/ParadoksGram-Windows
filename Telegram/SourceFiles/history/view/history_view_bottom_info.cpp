@@ -70,9 +70,18 @@ namespace {
 	return map.back().text;
 }
 
+[[nodiscard]] QString TimeWithSeconds(const QTime &time) {
+	auto format = QLocale().timeFormat(QLocale::ShortFormat);
+	const auto index = format.indexOf(u"mm"_q);
+	if (index >= 0) {
+		format.insert(index + 2, u":ss"_q);
+	}
+	return QLocale().toString(time, format);
+}
+
 [[nodiscard]] QString FormatEditedDate(QDateTime sent, QDateTime edited) {
 	const auto today = QDateTime::currentDateTime().date();
-	const auto time = QLocale().toString(edited.time(), QLocale::ShortFormat);
+	const auto time = TimeWithSeconds(edited.time());
 	if (sent.date() == today && edited.date() == today) {
 		return tr::lng_edited_at(tr::now, lt_time, time);
 	}
@@ -509,7 +518,7 @@ void BottomInfo::layoutDateText() {
 		: edited + ((_data.flags
 			& (Data::Flag::ForwardedDate | Data::Flag::FullDate))
 		? Ui::FormatDateTimeSavedFrom(_data.date)
-		: QLocale().toString(_data.date.time(), QLocale::ShortFormat));
+		: TimeWithSeconds(_data.date.time()));
 	const auto afterAuthor = prefix + date;
 	const auto afterAuthorWidth = st::msgDateFont->width(afterAuthor);
 	const auto authorWidth = st::msgDateFont->width(author);
