@@ -13,6 +13,7 @@ Tahrirlar tarixi har doim ko'rinadi, xabar vaqti soniyalar bilan
 Yangi:
 - Xabar pufagidagi vaqt endi soniyalar bilan ko'rinadi (masalan 11:52:37).
 - Xabar menyusida "Tahrirlar tarixi" endi har bir xabarda turadi (tahrirlanmagan xabarda ham). Oynada "Hammasini nusxalash" tugmasi bor.
+- Chatni klon qilish yopiq (havolasiz) guruh va kanallarda ham chiqadi. Saqlash va uzatish cheklangan chatlar oldingidek klonlanmaydi.
 
 ## 1.34.0 (6-noyabr)
 Asos Telegram Desktop 7.3.5 ga yangilandi

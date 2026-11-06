@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/call_delayed.h"
 #include "base/random.h"
 #include "settings.h"
+#include "data/data_chat.h"
 #include "data/data_channel.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
@@ -505,9 +506,9 @@ void ListBox(
 
 bool CanClone(not_null<PeerData*> peer) {
 	if (const auto channel = peer->asChannel()) {
-		return channel->isPublic()
-			&& !channel->isMonoforum()
-			&& peer->allowsForwarding();
+		return !channel->isMonoforum() && peer->allowsForwarding();
+	} else if (const auto chat = peer->asChat()) {
+		return !chat->isDeactivated() && peer->allowsForwarding();
 	} else if (const auto user = peer->asUser()) {
 		return !user->isInaccessible() && peer->allowsForwarding();
 	}
