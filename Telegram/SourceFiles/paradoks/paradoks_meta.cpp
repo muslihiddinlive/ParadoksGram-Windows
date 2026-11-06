@@ -17,6 +17,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/popup_menu.h"
 #include "styles/style_menu_icons.h"
 
+#include <cstring>
+
 #include <QtCore/QDateTime>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
@@ -403,6 +405,190 @@ void AddMetaAction(
 		const auto report = BuildReport(path, current->filename(), exif);
 		ShowWindow(current->filename(), report, exif);
 	}, &st::menuIconInfo);
+}
+
+namespace {
+
+[[nodiscard]] int ExifOrientation(const uchar *d, int size) {
+	// d points to "Exif\0\0" + TIFF header.
+	if (size < 20 || memcmp(d, "Exif\0\0", 6) != 0) {
+		return 1;
+	}
+	const auto t = d + 6;
+	const auto n = size - 6;
+	const auto big = (t[0] == 'M');
+	if (!big && t[0] != 'I') {
+		return 1;
+	}
+	const auto r16 = [&](int o) -> int {
+		return (o + 2 > n) ? 0 : big ? ((t[o] << 8) | t[o + 1]) : ((t[o + 1] << 8) | t[o]);
+	};
+	const auto r32 = [&](int o) -> int {
+		if (o + 4 > n) {
+			return n;
+		}
+		return big
+			? int((uint(t[o]) << 24) | (uint(t[o + 1]) << 16) | (uint(t[o + 2]) << 8) | uint(t[o + 3]))
+			: int((uint(t[o + 3]) << 24) | (uint(t[o + 2]) << 16) | (uint(t[o + 1]) << 8) | uint(t[o]));
+	};
+	const auto ifd = r32(4);
+	if (ifd < 8 || ifd + 2 > n) {
+		return 1;
+	}
+	const auto count = r16(ifd);
+	for (auto i = 0; i != count; ++i) {
+		const auto e = ifd + 2 + i * 12;
+		if (e + 12 > n) {
+			break;
+		}
+		if (r16(e) == 0x0112) {
+			const auto v = r16(e + 8);
+			return (v >= 1 && v <= 8) ? v : 1;
+		}
+	}
+	return 1;
+}
+
+[[nodiscard]] QByteArray OrientationOnlyExif(int orientation) {
+	auto result = QByteArray("Exif\0\0", 6);
+	result.append("MM\0*\0\0\0\10", 8);
+	result.append("\0\1", 2);
+	result.append("\x01\x12\0\3\0\0\0\1", 8);
+	result.append(char(0));
+	result.append(char(orientation));
+	result.append("\0\0", 2);
+	result.append("\0\0\0\0", 4);
+	return result;
+}
+
+[[nodiscard]] QByteArray StripJpeg(const QByteArray &data) {
+	const auto d = reinterpret_cast<const uchar*>(data.constData());
+	const auto size = int(data.size());
+	if (size < 4 || d[0] != 0xFF || d[1] != 0xD8) {
+		return {};
+	}
+	auto result = QByteArray();
+	result.reserve(size);
+	result.append(data.constData(), 2);
+	auto changed = false;
+	auto pos = 2;
+	while (pos + 4 <= size) {
+		if (d[pos] != 0xFF) {
+			return {};
+		}
+		const auto marker = d[pos + 1];
+		if (marker == 0xFF) {
+			++pos;
+			continue;
+		}
+		if (marker == 0xDA || marker == 0xD9) {
+			break;
+		}
+		if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8)) {
+			result.append(data.constData() + pos, 2);
+			pos += 2;
+			continue;
+		}
+		const auto length = (int(d[pos + 2]) << 8) | d[pos + 3];
+		if (length < 2 || pos + 2 + length > size) {
+			return {};
+		}
+		const auto seg = data.constData() + pos;
+		const auto total = 2 + length;
+		auto drop = false;
+		if (marker == 0xE1) {
+			// EXIF or XMP.
+			const auto orientation = ExifOrientation(d + pos + 4, length - 2);
+			drop = true;
+			changed = true;
+			if (orientation != 1
+				&& length >= 8
+				&& memcmp(d + pos + 4, "Exif\0\0", 6) == 0) {
+				const auto body = OrientationOnlyExif(orientation);
+				const auto len = int(body.size()) + 2;
+				result.append(char(0xFF));
+				result.append(char(0xE1));
+				result.append(char(len >> 8));
+				result.append(char(len & 0xFF));
+				result.append(body);
+			}
+		} else if (marker == 0xED // IPTC / Photoshop
+			|| marker == 0xFE // Comment
+			|| marker == 0xEB // APP11 (JUMBF)
+			|| marker == 0xEC // APP12
+			|| marker == 0xEE) { // APP14 Adobe: keep colour only if needed
+			if (marker != 0xEE) {
+				drop = true;
+				changed = true;
+			}
+		} else if (marker == 0xE2
+			&& length > 14
+			&& memcmp(d + pos + 4, "MPF\0", 4) == 0) {
+			drop = true; // Multi-picture offsets, may hold extra images.
+			changed = true;
+		}
+		if (!drop) {
+			result.append(seg, total);
+		}
+		pos += total;
+	}
+	if (!changed) {
+		return {};
+	}
+	result.append(data.constData() + pos, size - pos);
+	return result;
+}
+
+[[nodiscard]] QByteArray StripPng(const QByteArray &data) {
+	static const auto kSignature = QByteArray("\x89PNG\r\n\x1a\n", 8);
+	if (data.size() < 20 || !data.startsWith(kSignature)) {
+		return {};
+	}
+	const auto d = reinterpret_cast<const uchar*>(data.constData());
+	const auto size = int(data.size());
+	auto result = QByteArray();
+	result.reserve(size);
+	result.append(kSignature);
+	auto changed = false;
+	auto pos = 8;
+	while (pos + 12 <= size) {
+		const auto length = (qint64(d[pos]) << 24)
+			| (qint64(d[pos + 1]) << 16)
+			| (qint64(d[pos + 2]) << 8)
+			| qint64(d[pos + 3]);
+		const auto total = length + 12;
+		if (pos + total > size) {
+			return {};
+		}
+		const auto type = QByteArray(data.constData() + pos + 4, 4);
+		const auto drop = (type == "tEXt")
+			|| (type == "zTXt")
+			|| (type == "iTXt")
+			|| (type == "eXIf")
+			|| (type == "tIME");
+		if (drop) {
+			changed = true;
+		} else {
+			result.append(data.constData() + pos, int(total));
+		}
+		pos += int(total);
+		if (type == "IEND") {
+			break;
+		}
+	}
+	return changed ? result : QByteArray();
+}
+
+} // namespace
+
+QByteArray StripImageMetadata(const QByteArray &data) {
+	if (data.size() < 12) {
+		return {};
+	}
+	if (auto jpeg = StripJpeg(data); !jpeg.isEmpty()) {
+		return jpeg;
+	}
+	return StripPng(data);
 }
 
 } // namespace Paradoks::Meta

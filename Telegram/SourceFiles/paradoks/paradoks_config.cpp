@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings.h"
 
 #include "rpl/rpl.h"
+#include <crl/crl_time.h>
 
 #include <QtCore/QDateTime>
 #include <QtCore/QSettings>
@@ -56,6 +57,7 @@ constexpr auto kFlags = std::array<FlagInfo, kCount>{ {
 	{ "ad_on_interaction", false },
 	{ "hidden_in_search", false },
 	{ "web_devtools", false },
+	{ "strip_metadata", true },
 } };
 
 std::array<std::atomic<bool>, kCount> Values;
@@ -235,14 +237,44 @@ void SetAppIconVariant(int variant) {
 int DownloadMode() {
 	auto value = DownloadModeValue.load();
 	if (value < 0) {
-		value = std::clamp(IntSetting(u"download_mode"_q, 0), 0, 2);
+		value = std::clamp(IntSetting(u"download_mode"_q, 0), 0, 3);
 		DownloadModeValue.store(value);
 	}
 	return value;
 }
 
+int EffectiveDownloadMode() {
+	const auto mode = DownloadMode();
+	if (mode != 3) {
+		return mode;
+	}
+	// Auto: follow the measured speed, re-evaluated at most every 4 s.
+	static std::atomic<int> current = 1;
+	static std::atomic<crl::time> checked = 0;
+	const auto now = crl::now();
+	if (now - checked.load() < 4000) {
+		return current.load();
+	}
+	checked = now;
+	const auto speed = DownloadSpeed();
+	auto next = current.load();
+	if (speed <= 0.) {
+		next = 1; // Nothing measured yet: start fast, adapt later.
+	} else if (speed < 300. * 1024) {
+		next = 2; // Slow or lossy link: more streams, smaller waits.
+	} else if (speed > 3. * 1024 * 1024) {
+		next = 1;
+	} else if (next == 2 && speed > 600. * 1024) {
+		next = 0;
+	} else if (next == 1 && speed < 1024. * 1024) {
+		next = 0;
+	}
+	current = next;
+	return next;
+}
+
 void SetDownloadMode(int mode) {
-	mode = std::clamp(mode, 0, 2);
+	mode = std::clamp(mode, 0, 3);
 	DownloadModeValue.store(mode);
 	SetIntSetting(u"download_mode"_q, mode);
 }

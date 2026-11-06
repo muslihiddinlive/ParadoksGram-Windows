@@ -20,6 +20,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
 
+#include "crl/crl.h"
+
+#include <QtCore/QMimeDatabase>
+
 #include <deque>
 #include <memory>
 
@@ -46,6 +50,11 @@ struct Job {
 	QStringList failed;
 	qint64 total = 0;
 	int saved = 0;
+	bool single = false;
+	QStringList placeholderLocals;
+	QHash<QString, int> placeholderIndex;
+	QHash<QString, bool> savedLocals; // local -> is css
+	QHash<QString, QString> originalUrls; // local -> absolute url
 	Fn<void(const QString &)> progress;
 	Fn<void(const QString &)> done;
 };
@@ -126,6 +135,19 @@ struct Job {
 			.local = local,
 			.css = css || lower.endsWith(u".css"_q),
 		});
+	}
+	if (job->single) {
+		const auto &local = i.value();
+		job->originalUrls.insert(local, key);
+		auto index = job->placeholderIndex.value(local, -1);
+		if (index < 0) {
+			index = job->placeholderLocals.size();
+			job->placeholderLocals.push_back(local);
+			job->placeholderIndex.insert(local, index);
+		}
+		return QString(QChar(0xE000))
+			+ QString::number(index)
+			+ QChar(0xE001);
 	}
 	return Relative(*job, fromLocal, i.value());
 }
@@ -220,7 +242,168 @@ bool WriteFile(const QString &path, const QByteArray &data) {
 	return file.open(QIODevice::WriteOnly) && file.write(data) == data.size();
 }
 
+struct Assembly {
+	QString dir;
+	QString html;
+	QString out;
+	QStringList locals;
+	QHash<QString, bool> css;
+	QHash<QString, QString> original;
+	QStringList failed;
+	int saved = 0;
+	bool limited = false;
+};
+
+[[nodiscard]] QString MimeFor(const QString &local) {
+	const auto lower = local.toLower();
+	auto ext = lower.mid(lower.lastIndexOf('.') + 1);
+	const auto tilde = ext.indexOf('~');
+	if (tilde >= 0) {
+		ext = ext.left(tilde);
+	}
+	if (ext == u"css"_q) return u"text/css"_q;
+	if (ext == u"js"_q || ext == u"mjs"_q) return u"text/javascript"_q;
+	if (ext == u"json"_q) return u"application/json"_q;
+	if (ext == u"svg"_q) return u"image/svg+xml"_q;
+	if (ext == u"woff"_q) return u"font/woff"_q;
+	if (ext == u"woff2"_q) return u"font/woff2"_q;
+	if (ext == u"ttf"_q) return u"font/ttf"_q;
+	if (ext == u"otf"_q) return u"font/otf"_q;
+	const auto name = QMimeDatabase().mimeTypeForFile(
+		u"x."_q + ext,
+		QMimeDatabase::MatchExtension).name();
+	return name.isEmpty() ? u"application/octet-stream"_q : name;
+}
+
+[[nodiscard]] QString ExpandCss(
+		const Assembly &data,
+		const QString &local,
+		int depth) {
+	constexpr auto kInlineInCssMax = qint64(8) * 1024 * 1024;
+	auto file = QFile(data.dir + '/' + local);
+	if (!file.open(QIODevice::ReadOnly)) {
+		return QString();
+	}
+	const auto css = QString::fromUtf8(file.readAll());
+	file.close();
+	static const auto re = QRegularExpression(u"\\x{E000}(\\d+)\\x{E001}"_q);
+	auto result = QString();
+	auto last = 0;
+	auto it = re.globalMatch(css);
+	while (it.hasNext()) {
+		const auto match = it.next();
+		result += css.mid(last, match.capturedStart() - last);
+		last = match.capturedEnd();
+		const auto inner = data.locals[match.captured(1).toInt()];
+		const auto isCss = data.css.value(inner, false);
+		const auto info = QFileInfo(data.dir + '/' + inner);
+		const auto original = data.original.value(inner);
+		if (!data.css.contains(inner)) {
+			result += original;
+		} else if (isCss) {
+			result += (depth >= 4)
+				? original
+				: (u"data:text/css;base64,"_q + QString::fromLatin1(
+					ExpandCss(data, inner, depth + 1).toUtf8().toBase64()));
+		} else if (info.size() > kInlineInCssMax) {
+			result += original;
+		} else {
+			auto asset = QFile(info.filePath());
+			if (asset.open(QIODevice::ReadOnly)) {
+				result += u"data:"_q + MimeFor(inner) + u";base64,"_q
+					+ QString::fromLatin1(asset.readAll().toBase64());
+			} else {
+				result += original;
+			}
+		}
+	}
+	result += css.mid(last);
+	return result;
+}
+
+[[nodiscard]] bool AssembleSingle(const Assembly &data) {
+	QDir().mkpath(QFileInfo(data.out).path());
+	auto out = QFile(data.out);
+	if (!out.open(QIODevice::WriteOnly)) {
+		return false;
+	}
+	static const auto re = QRegularExpression(u"\\x{E000}(\\d+)\\x{E001}"_q);
+	auto last = 0;
+	auto it = re.globalMatch(data.html);
+	while (it.hasNext()) {
+		const auto match = it.next();
+		out.write(data.html.mid(last, match.capturedStart() - last).toUtf8());
+		last = match.capturedEnd();
+		const auto local = data.locals[match.captured(1).toInt()];
+		if (!data.css.contains(local)) {
+			out.write(data.original.value(local).toUtf8());
+		} else if (data.css.value(local)) {
+			out.write(u"data:text/css;base64,"_q.toUtf8());
+			out.write(ExpandCss(data, local, 0).toUtf8().toBase64());
+		} else {
+			auto asset = QFile(data.dir + '/' + local);
+			if (!asset.open(QIODevice::ReadOnly)) {
+				out.write(data.original.value(local).toUtf8());
+				continue;
+			}
+			out.write((u"data:"_q + MimeFor(local) + u";base64,"_q).toUtf8());
+			constexpr auto kChunk = 3 * 65536;
+			while (!asset.atEnd()) {
+				out.write(asset.read(kChunk).toBase64());
+			}
+		}
+	}
+	out.write(data.html.mid(last).toUtf8());
+	auto info = QStringList{
+		u"\n<!-- ParadoksGram: mini-app nusxasi."_q,
+		u"Fayllar: %1, yuklanmagan: %2"_q.arg(data.saved).arg(data.failed.size()),
+	};
+	for (auto line : data.failed) {
+		info.push_back(line.replace(u"--"_q, u"- -"_q));
+	}
+	if (data.limited) {
+		info.push_back(u"1.5 GB limitga yetildi, qolgan fayllar saqlanmadi."_q);
+	}
+	info.push_back(u"Skriptlar ichidan keyin yuklanadigan fayllar va backend kod saqlanmaydi. -->\n"_q);
+	out.write(info.join('\n').toUtf8());
+	return out.error() == QFileDevice::NoError;
+}
+
+void FinishSingle(const std::shared_ptr<Job> &job) {
+	job->progress(u"Bitta HTML fayl yig'ilmoqda..."_q);
+	auto data = std::make_shared<Assembly>();
+	data->dir = job->dir;
+	data->html = job->html;
+	data->out = job->dir + u".html"_q;
+	data->locals = job->placeholderLocals;
+	data->css = job->savedLocals;
+	data->original = job->originalUrls;
+	data->failed = job->failed;
+	data->saved = job->saved + 1;
+	data->limited = !job->queue.empty();
+	const auto progress = job->progress;
+	const auto done = job->done;
+	crl::async([=] {
+		const auto ok = AssembleSingle(*data);
+		QDir(data->dir).removeRecursively();
+		crl::on_main([=] {
+			if (!ok) {
+				progress(u"HTML faylni yig'ib bo'lmadi."_q);
+				done(QString());
+				return;
+			}
+			progress(u"Tayyor: %1 ta fayl bitta HTML ichiga joylandi."_q.arg(
+				data->saved));
+			done(data->out);
+		});
+	});
+}
+
 void Finish(const std::shared_ptr<Job> &job) {
+	if (job->single) {
+		FinishSingle(job);
+		return;
+	}
 	auto info = QStringList{
 		u"ParadoksGram: mini-app sahifa nusxasi"_q,
 		u"Manzil: "_q + job->root.adjusted(
@@ -293,10 +476,54 @@ void Next(const std::shared_ptr<Job> &job) {
 		QNetworkRequest::UserAgentHeader,
 		u"Mozilla/5.0 (Windows NT 10.0; Win64; x64) ParadoksGram-Copy"_q);
 	const auto reply = job->network.get(request);
+	// Everything except CSS is streamed straight to the disk, so big
+	// files (video) do not have to fit into memory.
+	const auto streamed = !item.css;
+	const auto file = std::make_shared<QFile>();
+	const auto written = std::make_shared<qint64>(0);
+	if (streamed) {
+		const auto path = job->dir + '/' + item.local;
+		QDir().mkpath(QFileInfo(path).path());
+		file->setFileName(path);
+		if (!file->open(QIODevice::WriteOnly)) {
+			job->failed.push_back(item.url.toString()
+				+ u" (saqlab bo'lmadi)"_q);
+			reply->abort();
+		}
+		QObject::connect(reply, &QNetworkReply::readyRead, reply, [=] {
+			const auto chunk = reply->readAll();
+			if (!file->isOpen()) {
+				return;
+			}
+			*written += chunk.size();
+			if (job->total + *written > kMaxTotalSize) {
+				reply->abort();
+				return;
+			}
+			file->write(chunk);
+		});
+	}
 	QObject::connect(reply, &QNetworkReply::finished, reply, [=] {
 		const auto guard = std::unique_ptr<QNetworkReply, void(*)(QNetworkReply*)>(
 			reply,
 			[](QNetworkReply *r) { r->deleteLater(); });
+		if (streamed) {
+			const auto opened = file->isOpen();
+			file->close();
+			if (reply->error() != QNetworkReply::NoError) {
+				QFile::remove(file->fileName());
+				if (opened) {
+					job->failed.push_back(item.url.toString() + u" ("_q
+						+ reply->errorString() + ')');
+				}
+			} else if (opened) {
+				job->total += *written;
+				++job->saved;
+				job->savedLocals.insert(item.local, false);
+			}
+			Next(job);
+			return;
+		}
 		if (reply->error() != QNetworkReply::NoError) {
 			job->failed.push_back(item.url.toString() + u" ("_q
 				+ reply->errorString() + ')');
@@ -317,6 +544,7 @@ void Next(const std::shared_ptr<Job> &job) {
 				job->total += data.size();
 				if (WriteFile(job->dir + '/' + item.local, data)) {
 					++job->saved;
+					job->savedLocals.insert(item.local, item.css);
 				} else {
 					job->failed.push_back(item.url.toString()
 						+ u" (saqlab bo'lmadi)"_q);
@@ -331,6 +559,7 @@ void Next(const std::shared_ptr<Job> &job) {
 
 void Start(
 		const QString &url,
+		bool single,
 		Fn<void(const QString &)> progress,
 		Fn<void(const QString &)> done) {
 	auto root = QUrl(url.trimmed());
@@ -342,6 +571,7 @@ void Start(
 	}
 	const auto job = std::make_shared<Job>();
 	job->root = root;
+	job->single = single;
 	job->progress = std::move(progress);
 	job->done = std::move(done);
 	const auto documents = QStandardPaths::writableLocation(
@@ -375,6 +605,11 @@ void Start(
 		job->root.setFragment(QString());
 		const auto html = QString::fromUtf8(reply->readAll());
 		const auto rewritten = RewriteHtml(job, html);
+		if (single) {
+			job->html = rewritten;
+			Next(job);
+			return;
+		}
 		if (!WriteFile(
 				job->dir + u"/index.html"_q,
 				rewritten.toUtf8())) {

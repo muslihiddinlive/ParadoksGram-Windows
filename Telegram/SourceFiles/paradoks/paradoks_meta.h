@@ -9,6 +9,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <memory>
 
+#include <QtCore/QByteArray>
+
 class HistoryItem;
 
 namespace Ui {
@@ -26,5 +28,10 @@ void AddMetaAction(
 	not_null<Ui::PopupMenu*> menu,
 	std::shared_ptr<Ui::Show> show,
 	not_null<HistoryItem*> item);
+
+// Removes EXIF/XMP/IPTC (JPEG) and text/time/exif chunks (PNG). The picture
+// itself is not re-encoded. JPEG orientation is kept. Returns an empty array
+// if the data is not a supported image or has nothing to remove.
+[[nodiscard]] QByteArray StripImageMetadata(const QByteArray &data);
 
 } // namespace Paradoks::Meta

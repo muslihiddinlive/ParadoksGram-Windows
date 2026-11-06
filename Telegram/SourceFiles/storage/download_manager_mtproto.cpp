@@ -23,16 +23,16 @@ namespace {
 constexpr auto kKillSessionTimeout = 15 * crl::time(1000);
 // ParadoksGram: the balance depends on the "download mode" setting.
 [[nodiscard]] int StartWaitedInSession() {
-	return ((Paradoks::DownloadMode() == 2) ? 4 : 8) * kDownloadPartSize;
+	return ((Paradoks::EffectiveDownloadMode() == 2) ? 4 : 8) * kDownloadPartSize;
 }
 [[nodiscard]] int MaxWaitedInSession() {
-	return ((Paradoks::DownloadMode() == 2) ? 12 : 32) * kDownloadPartSize;
+	return ((Paradoks::EffectiveDownloadMode() == 2) ? 12 : 32) * kDownloadPartSize;
 }
 [[nodiscard]] int StartSessionsCount() {
-	return (Paradoks::DownloadMode() == 0) ? 4 : 8;
+	return (Paradoks::EffectiveDownloadMode() == 0) ? 4 : 8;
 }
 [[nodiscard]] int MaxSessionsCount() {
-	switch (Paradoks::DownloadMode()) {
+	switch (Paradoks::EffectiveDownloadMode()) {
 	case 1: return 24;
 	case 2: return 32;
 	}

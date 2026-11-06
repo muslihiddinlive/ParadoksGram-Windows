@@ -167,6 +167,7 @@ not_null<Settings::Button*> AddRow(
 	case Flag::AdOnInteraction: return &st::menuIconReactions;
 	case Flag::HiddenInSearch: return &st::menuIconSearch;
 	case Flag::WebDevTools: return &st::menuIconExperimental;
+	case Flag::StripMetadata: return &st::menuIconStealth;
 	default: return &st::menuIconSettings;
 	}
 }
@@ -1227,7 +1228,9 @@ void SettingsBox(
 	const auto modeTitle = [] {
 		const auto mode = DownloadMode();
 		return u"Yuklash rejimi: "_q
-			+ ((mode == 1)
+			+ ((mode == 3)
+				? u"avto"_q
+				: (mode == 1)
 				? u"tez"_q
 				: (mode == 2)
 				? u"sekin internet uchun"_q
@@ -1242,6 +1245,7 @@ void SettingsBox(
 			u"Tez (8 dan 24 gacha oqim, yaxshi internet uchun)"_q,
 			u"Sekin internet (8 dan 32 gacha oqim, har oqimda kamroq "
 				"bo'lak)"_q,
+			u"Avto (tezlikka qarab o'zi tanlaydi)"_q,
 		};
 		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
 			.title = rpl::single(u"Yuklash rejimi"_q),
@@ -1324,6 +1328,10 @@ void SettingsBox(
 		box,
 		Hotkey::Slot::Hidden,
 		u"Yashirin chatlar shortcut"_q);
+	AddToggle(
+		box,
+		Flag::StripMetadata,
+		u"Yuborilayotgan rasmlardan metadata (EXIF) ni tozalash"_q);
 	AddText(
 		box,
 		u"Chatni yashirish yoki qulflash uchun chatlar ro'yxatida chat ustiga "

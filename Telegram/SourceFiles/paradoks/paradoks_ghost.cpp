@@ -19,6 +19,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_domain.h"
 #include "main/main_session.h"
 
+#include "base/timer.h"
+
 #include <set>
 
 namespace Paradoks::Ghost {
@@ -29,6 +31,30 @@ std::set<uint64> StatusSent;
 
 [[nodiscard]] bool Active(Flag flag) {
 	return Enabled(flag) && InGhostWindow();
+}
+
+void SendOfflineToAll() {
+	for (const auto &entry : Core::App().domain().accounts()) {
+		if (const auto session = entry.account->maybeSession()) {
+			session->api().request(MTPaccount_UpdateStatus(
+				MTP_bool(true)
+			)).send();
+		}
+	}
+}
+
+// Some actions (sending a message, opening a chat...) make the server show
+// "online" again, so while the online part is on, "offline" is repeated.
+void EnsureTicker() {
+	static const auto timer = new base::Timer([] {
+		if (!Active(Flag::GhostOnline)) {
+			return;
+		}
+		SendOfflineToAll();
+	});
+	if (!timer->isActive()) {
+		timer->callEach(15 * crl::time(1000));
+	}
 }
 
 } // namespace
@@ -73,6 +99,7 @@ bool AllowStatusPacket(not_null<Main::Session*> session) {
 		StatusSent.clear();
 		return true;
 	}
+	EnsureTicker();
 	const auto first = StatusSent.emplace(session->uniqueId()).second;
 	Debug::Log(u"ghost online: status packet %1"_q.arg(first ? u"sent once (offline)"_q : u"blocked"_q));
 	return first;
@@ -83,6 +110,7 @@ void OnOnlineSwitched(bool on) {
 	if (!on || !Online()) {
 		return;
 	}
+	EnsureTicker();
 	for (const auto &entry : Core::App().domain().accounts()) {
 		if (const auto session = entry.account->maybeSession()) {
 			StatusSent.emplace(session->uniqueId());

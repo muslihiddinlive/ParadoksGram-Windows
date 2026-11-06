@@ -427,6 +427,7 @@ enum class SharedPanelMenuAction {
 	Settings,
 	OpenBot,
 	Reload,
+	Clone,
 	ShareGame,
 	Terms,
 	Privacy,
@@ -459,6 +460,7 @@ struct SharedPanelMenuBuildArgs {
 struct SharedPanelMenuDispatchArgs {
 	Fn<void()> settings;
 	Fn<void()> reload;
+	Fn<void()> clone;
 	Fn<void()> terms;
 	Fn<void()> privacy;
 	Fn<void(MenuButton)> menuButton;
@@ -473,6 +475,8 @@ struct SharedPanelMenuDispatchArgs {
 		return u"open_bot"_q;
 	case SharedPanelMenuAction::Reload:
 		return u"reload"_q;
+	case SharedPanelMenuAction::Clone:
+		return u"paradoks_clone"_q;
 	case SharedPanelMenuAction::ShareGame:
 		return u"share_game"_q;
 	case SharedPanelMenuAction::Terms:
@@ -537,6 +541,8 @@ struct ParsedSharedPanelMenuAction {
 		return { SharedPanelMenuAction::OpenBot };
 	} else if (id == u"reload"_q) {
 		return { SharedPanelMenuAction::Reload };
+	} else if (id == u"paradoks_clone"_q) {
+		return { SharedPanelMenuAction::Clone };
 	} else if (id == u"share_game"_q) {
 		return { SharedPanelMenuAction::ShareGame };
 	} else if (id == u"terms"_q) {
@@ -582,6 +588,11 @@ void DispatchSharedPanelMenuAction(
 	case SharedPanelMenuAction::Reload:
 		if (dispatch.reload) {
 			dispatch.reload();
+		}
+		break;
+	case SharedPanelMenuAction::Clone:
+		if (dispatch.clone) {
+			dispatch.clone();
 		}
 		break;
 	case SharedPanelMenuAction::ShareGame:
@@ -705,6 +716,12 @@ void DispatchSharedPanelMenuAction(
 		.text = tr::lng_bot_reload_page(tr::now),
 		.iconKey = u"reload"_q,
 		.icon = &st::menuIconRestore,
+	});
+	result.push_back({
+		.id = SharedPanelMenuActionId(SharedPanelMenuAction::Clone),
+		.text = u"Mini-appni nusxalash"_q,
+		.iconKey = u"paradoks_clone"_q,
+		.icon = &st::menuIconCopy,
 	});
 	if (args.buttons & MenuButton::ShareGame) {
 		result.push_back({
@@ -1709,6 +1726,9 @@ bool Panel::showWebview(Args &&args, const Webview::ThemeParams &params) {
 				_webview->window.navigate(url);
 			}
 		},
+		.clone = [=] {
+			Paradoks::WebDev::CloneCurrent();
+		},
 		.terms = [=] {
 			_delegate->botOpenTermsOfService();
 		},
@@ -2028,6 +2048,9 @@ void Panel::handleExternalShellMenuAction(const QString &id) {
 				updateThemeParams(params);
 				NavigateToExternalShellTop(&_webview->window);
 			}
+		},
+		.clone = [=] {
+			Paradoks::WebDev::CloneCurrent();
 		},
 		.terms = [=] {
 			_delegate->botOpenTermsOfService();
