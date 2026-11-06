@@ -245,12 +245,16 @@ void BuildWindow() {
 	const auto copyStart = new QPushButton(
 		u"Sahifani saqlash va Saved Messages ga yuborish"_q,
 		copyTab);
-	const auto copyOpen = new QPushButton(u"ZIP joylashgan papkani ochish"_q, copyTab);
+	const auto htmlStart = new QPushButton(
+		u"Bitta HTML qilib saqlash (hammasi ichida) va yuborish"_q,
+		copyTab);
+	const auto copyOpen = new QPushButton(u"Fayl joylashgan papkani ochish"_q, copyTab);
 	copyOpen->setEnabled(false);
 	const auto copyLog = new QPlainTextEdit(copyTab);
 	copyLog->setReadOnly(true);
 	copyLayout->addWidget(copyNote);
 	copyLayout->addWidget(copyStart);
+	copyLayout->addWidget(htmlStart);
 	copyLayout->addWidget(copyLog, 1);
 	copyLayout->addWidget(copyOpen);
 	tabs->addTab(copyTab, u"Nusxa"_q);
@@ -288,17 +292,19 @@ void BuildWindow() {
 	QObject::connect(devtools, &QCheckBox::toggled, window, [=](bool on) {
 		SetDevTools(on);
 	});
-	QObject::connect(copyStart, &QPushButton::clicked, window, [=] {
+	const auto startCopy = [=](bool single) {
 		if (CurrentUrl.isEmpty()) {
 			copyLog->setPlainText(u"Mini-app ochilmagan."_q);
 			return;
 		}
 		copyStart->setEnabled(false);
+		htmlStart->setEnabled(false);
 		copyOpen->setEnabled(false);
 		copyLog->clear();
 		const auto guard = QPointer<QWidget>(window);
 		WebCopy::Start(
 			CurrentUrl,
+			single,
 			[=](const QString &line) {
 				if (guard) {
 					copyLog->appendPlainText(line);
@@ -309,6 +315,7 @@ void BuildWindow() {
 					return;
 				}
 				copyStart->setEnabled(true);
+				htmlStart->setEnabled(true);
 				*copyFolder = folder;
 				copyOpen->setEnabled(!folder.isEmpty());
 				if (folder.isEmpty()) {
@@ -331,7 +338,7 @@ void BuildWindow() {
 				if (files.error != Ui::PreparedList::Error::None
 					|| files.files.empty()) {
 					copyLog->appendPlainText(
-						u"ZIP yuborib bo'lmadi (hajm katta bo'lishi mumkin)."_q);
+						u"Faylni yuborib bo'lmadi (hajm katta bo'lishi mumkin)."_q);
 					return;
 				}
 				files.files.front().caption = TextWithTags{
@@ -345,6 +352,12 @@ void BuildWindow() {
 				copyLog->appendPlainText(
 					u"Saved Messages ga yuborilmoqda."_q);
 			});
+	};
+	QObject::connect(copyStart, &QPushButton::clicked, window, [=] {
+		startCopy(false);
+	});
+	QObject::connect(htmlStart, &QPushButton::clicked, window, [=] {
+		startCopy(true);
 	});
 	QObject::connect(copyOpen, &QPushButton::clicked, window, [=] {
 		if (!copyFolder->isEmpty()) {
