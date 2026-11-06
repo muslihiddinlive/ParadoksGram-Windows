@@ -1451,13 +1451,14 @@ void AddEditHistoryAction(
 		not_null<HistoryItem*> item) {
 	auto versions = EditsFor(item);
 	if (versions.empty()) {
-		if (item->Has<HistoryMessageEdited>() && !item->hideEditedBadge()) {
-			menu->addAction(u"Tahrirlar tarixi (yo'q)"_q, [=] {
-				show->showToast(
-					u"Bu xabar ParadoksGram kuzatuvidan oldin tahrirlangan, "
-					"eski matni saqlanmagan. Keyingi tahrirlar saqlanadi."_q);
-			}, &st::menuIconInfo);
-		}
+		const auto edited = item->Has<HistoryMessageEdited>()
+			&& !item->hideEditedBadge();
+		menu->addAction(u"Tahrirlar tarixi (0)"_q, [=] {
+			show->showToast(edited
+				? u"Bu xabar ParadoksGram kuzatuvidan oldin tahrirlangan, "
+					"eski matni saqlanmagan. Keyingi tahrirlar saqlanadi."_q
+				: u"Bu xabar tahrirlanmagan."_q);
+		}, &st::menuIconInfo);
 		return;
 	}
 	const auto current = item->originalText();
