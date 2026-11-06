@@ -42,8 +42,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "mainwindow.h"
 #include "main/main_session.h"
+#include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_meta.h"
 
 #include <QtCore/QBuffer>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
 #include <QtGui/QImageWriter>
 
 namespace {
@@ -778,6 +782,47 @@ void FileLoadTask::process(ProcessArgs &&args) {
 			animationPreparing = true;
 		}
 		_animationJob = nullptr;
+	}
+
+	if ((_type == SendMediaType::File || _type == SendMediaType::Photo)
+		&& !_archive
+		&& !animationPreparing
+		&& Paradoks::Enabled(Paradoks::Flag::StripMetadata)) {
+		// Remove EXIF/GPS/XMP before anything is uploaded.
+		constexpr auto kMaxStrip = qint64(64) * 1024 * 1024;
+		if (!_filepath.isEmpty()) {
+			auto file = QFile(_filepath);
+			const auto size = file.size();
+			if (size > 12 && size <= kMaxStrip && file.open(QIODevice::ReadOnly)) {
+				const auto original = file.readAll();
+				file.close();
+				auto cleaned = Paradoks::Meta::StripImageMetadata(original);
+				if (!cleaned.isEmpty()) {
+					if (_displayName.isEmpty()) {
+						_displayName = QFileInfo(_filepath).fileName();
+					}
+					_content = std::move(cleaned);
+					_filepath = QString();
+					if (_information) {
+						if (auto image = std::get_if<Ui::PreparedFileInformation::Image>(
+								&_information->media)) {
+							image->bytes = _content;
+						}
+					}
+				}
+			}
+		} else if (!_content.isEmpty() && _content.size() <= kMaxStrip) {
+			auto cleaned = Paradoks::Meta::StripImageMetadata(_content);
+			if (!cleaned.isEmpty()) {
+				_content = std::move(cleaned);
+				if (_information) {
+					if (auto image = std::get_if<Ui::PreparedFileInformation::Image>(
+							&_information->media)) {
+						image->bytes = _content;
+					}
+				}
+			}
+		}
 	}
 
 	QString filename, filemime;

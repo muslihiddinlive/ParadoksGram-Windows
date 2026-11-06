@@ -56,6 +56,7 @@ constexpr auto kFlags = std::array<FlagInfo, kCount>{ {
 	{ "ad_on_interaction", false },
 	{ "hidden_in_search", false },
 	{ "web_devtools", false },
+	{ "strip_metadata", true },
 } };
 
 std::array<std::atomic<bool>, kCount> Values;

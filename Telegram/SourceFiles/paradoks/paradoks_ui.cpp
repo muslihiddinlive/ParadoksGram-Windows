@@ -167,6 +167,7 @@ not_null<Settings::Button*> AddRow(
 	case Flag::AdOnInteraction: return &st::menuIconReactions;
 	case Flag::HiddenInSearch: return &st::menuIconSearch;
 	case Flag::WebDevTools: return &st::menuIconExperimental;
+	case Flag::StripMetadata: return &st::menuIconStealth;
 	default: return &st::menuIconSettings;
 	}
 }
@@ -1324,6 +1325,10 @@ void SettingsBox(
 		box,
 		Hotkey::Slot::Hidden,
 		u"Yashirin chatlar shortcut"_q);
+	AddToggle(
+		box,
+		Flag::StripMetadata,
+		u"Yuborilayotgan rasmlardan metadata (EXIF) ni tozalash"_q);
 	AddText(
 		box,
 		u"Chatni yashirish yoki qulflash uchun chatlar ro'yxatida chat ustiga "
