@@ -34,6 +34,9 @@ void SetEnabled(Flag flag, bool value);
 void SetGhostAll(bool value);
 [[nodiscard]] rpl::producer<bool> GhostAllValue();
 
+// Fires whenever any ghost flag or the ghost schedule changes.
+[[nodiscard]] rpl::producer<> GhostChanges();
+
 [[nodiscard]] int GhostScheduleStart();
 [[nodiscard]] int GhostScheduleEnd();
 void SetGhostSchedule(int startMinutes, int endMinutes);

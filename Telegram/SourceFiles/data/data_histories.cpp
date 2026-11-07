@@ -33,12 +33,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_element.h"
 #include "core/application.h"
 #include "apiwrap.h"
+#include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_ghost.h"
 
 namespace Data {
 namespace {
 
 constexpr auto kReadRequestTimeout = 3 * crl::time(1000);
+// While ghost mode holds read requests back, re-check this often
+// (the ghost schedule window can end without any event).
+constexpr auto kGhostRecheckTimeout = 15 * crl::time(1000);
 constexpr auto kReportDeliveriesPerRequest = 50;
 
 } // namespace
@@ -136,6 +140,13 @@ MTPInputMedia WebPageForMTP(
 Histories::Histories(not_null<Session*> owner)
 : _owner(owner)
 , _readRequestsTimer([=] { sendReadRequests(); }) {
+	// Reads held back by ghost mode are sent once ghost mode ends.
+	Paradoks::GhostChanges(
+	) | rpl::on_next([=] {
+		if (!Paradoks::Ghost::Read()) {
+			sendReadRequests();
+		}
+	}, _ghostLifetime);
 }
 
 Session &Histories::owner() const {
@@ -715,13 +726,17 @@ void Histories::sendReadRequests() {
 	}
 	const auto now = crl::now();
 	auto next = std::optional<crl::time>();
+	auto heldByGhost = false;
 	for (auto &[history, state] : _states) {
 		if (!state.willReadTill) {
 			DEBUG_LOG(("Reading: skipping zero till."));
 			continue;
 		} else if (state.willReadWhen <= now) {
 			if (Paradoks::Ghost::Read()) {
-				state.willReadTill = 0;
+				// Keep the pending read (don't drop it): the history is
+				// already marked read locally, so nothing would ever
+				// resend it after ghost mode is turned off.
+				heldByGhost = true;
 				continue;
 			}
 			DEBUG_LOG(("Reading: sending with till %1."
@@ -732,7 +747,10 @@ void Histories::sendReadRequests() {
 			next = state.willReadWhen;
 		}
 	}
-	if (next.has_value()) {
+	if (heldByGhost
+		&& (!next || (*next - now) > kGhostRecheckTimeout)) {
+		_readRequestsTimer.callOnce(kGhostRecheckTimeout);
+	} else if (next.has_value()) {
 		_readRequestsTimer.callOnce(*next - now);
 	} else {
 		_readRequestsTimer.cancel();
