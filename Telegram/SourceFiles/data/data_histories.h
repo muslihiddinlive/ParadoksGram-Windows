@@ -235,6 +235,7 @@ private:
 	base::flat_map<int, not_null<History*>> _historyByRequest;
 	int _requestAutoincrement = 0;
 	base::Timer _readRequestsTimer;
+	rpl::lifetime _ghostLifetime;
 
 	base::flat_set<not_null<Data::Folder*>> _dialogFolderRequests;
 	base::flat_map<

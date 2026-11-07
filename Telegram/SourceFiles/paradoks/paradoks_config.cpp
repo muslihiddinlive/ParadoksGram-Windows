@@ -118,7 +118,8 @@ void SetEnabled(Flag flag, bool value) {
 	Values[int(flag)] = value;
 	auto settings = QSettings(FilePath(), QSettings::IniFormat);
 	settings.setValue(QString::fromLatin1(kFlags[int(flag)].key), value);
-	if (int(flag) <= int(Flag::GhostStories)) {
+	if (int(flag) <= int(Flag::GhostStories)
+		|| flag == Flag::GhostSchedule) {
 		GhostEvents().fire({});
 	}
 	if (flag == Flag::GhostOnline) {
@@ -138,6 +139,10 @@ void SetGhostAll(bool value) {
 	SetEnabled(Flag::GhostTyping, value);
 	SetEnabled(Flag::GhostOnline, value);
 	SetEnabled(Flag::GhostStories, value);
+}
+
+rpl::producer<> GhostChanges() {
+	return GhostEvents().events();
 }
 
 rpl::producer<bool> GhostAllValue() {
@@ -167,6 +172,7 @@ void SetGhostSchedule(int startMinutes, int endMinutes) {
 	auto settings = QSettings(FilePath(), QSettings::IniFormat);
 	settings.setValue(u"ghost_sched_start"_q, startMinutes);
 	settings.setValue(u"ghost_sched_end"_q, endMinutes);
+	GhostEvents().fire({});
 }
 
 namespace {
