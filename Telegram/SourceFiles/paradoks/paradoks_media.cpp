@@ -494,6 +494,39 @@ Data::FileOrigin RestoreOrigin(
 	return copyItem ? Data::FileOrigin(copyItem->fullId()) : origin;
 }
 
+bool LoadDbCopyFirst(
+		Data::FileOrigin origin,
+		not_null<Main::Session*> session,
+		Fn<void()> done) {
+	const auto id = std::get_if<Data::FileOriginMessage>(&origin.data);
+	if (!id || !*id || !Enabled(Flag::RestoreBackupMedia)) {
+		return false;
+	}
+	const auto item = session->data().message(*id);
+	if (!item || !item->media() || !IsDeleted(item)) {
+		return false;
+	}
+	const auto copy = DbCopyFor(
+		item->history()->peer->id.value,
+		item->id.bare);
+	if (!copy) {
+		return false;
+	}
+	const auto peerId = PeerId(copy->first);
+	const auto msgId = MsgId(copy->second);
+	if (session->data().message(peerId, msgId)) {
+		return false;
+	}
+	const auto peer = session->data().peerLoaded(peerId);
+	// One attempt per copy: if the server does not return it, fall back.
+	static auto tried = std::set<std::pair<uint64, int64>>();
+	if (!peer || !tried.emplace(copy->first, copy->second).second) {
+		return false;
+	}
+	session->api().requestMessageData(peer, msgId, std::move(done));
+	return true;
+}
+
 void RetryMedia(not_null<HistoryItem*> item) {
 	const auto media = item->media();
 	if (!media || !SavedMediaPath(item).isEmpty()) {

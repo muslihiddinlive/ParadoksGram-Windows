@@ -46,6 +46,13 @@ void NotifyDeleted(not_null<HistoryItem*> item);
 [[nodiscard]] Data::FileOrigin RestoreOrigin(
 	Data::FileOrigin origin,
 	not_null<Main::Session*> session);
+// If the media database copy of a deleted message is not in memory, asks the
+// server for it and calls `done` (true if it was requested). Used before a
+// manual download, so it works right after the app was started.
+[[nodiscard]] bool LoadDbCopyFirst(
+	Data::FileOrigin origin,
+	not_null<Main::Session*> session,
+	Fn<void()> done);
 // Tries again to save the media of a deleted message.
 void RetryMedia(not_null<HistoryItem*> item);
 [[nodiscard]] int64 SavedMediaBytes();

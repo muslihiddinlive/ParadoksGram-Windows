@@ -84,6 +84,14 @@ void DocumentSaveClickHandler::Save(
 	if (data->forbidsFileSave()) {
 		return;
 	}
+	if (Paradoks::LoadDbCopyFirst(
+			origin,
+			&data->session(),
+			crl::guard(&data->session(), [=] {
+				Save(origin, data, mode, started);
+			}))) {
+		return;
+	}
 	origin = Paradoks::RestoreOrigin(origin, &data->session());
 	auto savename = QString();
 	if (mode == Mode::ToCacheOrFile && data->saveToCache()) {
@@ -227,7 +235,16 @@ void PhotoSaveClickHandler::onClickImpl() const {
 		return;
 	} else {
 		data->clearFailed(Data::PhotoSize::Large);
-		data->load(Paradoks::RestoreOrigin(Data::FileOrigin(context()), &data->session()));
+		const auto origin = Data::FileOrigin(context());
+		if (Paradoks::LoadDbCopyFirst(
+				origin,
+				&data->session(),
+				crl::guard(&data->session(), [=] {
+					data->load(Paradoks::RestoreOrigin(origin, &data->session()));
+				}))) {
+			return;
+		}
+		data->load(Paradoks::RestoreOrigin(origin, &data->session()));
 	}
 }
 
