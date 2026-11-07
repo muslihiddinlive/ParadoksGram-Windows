@@ -83,6 +83,14 @@ void SetDownloadMode(int mode);
 // Liquid glass look of outgoing bubbles: 0 off, 1 light, 2 medium, 3 strong.
 [[nodiscard]] int GlassBubbleLevel();
 void SetGlassBubbleLevel(int level);
+// 0 colorless, 1 blue, 2 purple, 3 green, 4 pink, 5 gold.
+[[nodiscard]] int GlassTint();
+void SetGlassTint(int value);
+// 0 off, 1 soft, 2 normal, 3 bright.
+[[nodiscard]] int GlassEdge();
+void SetGlassEdge(int value);
+[[nodiscard]] bool GlassRefract();
+void SetGlassRefract(bool value);
 
 [[nodiscard]] int VoiceEffect();
 void SetVoiceEffect(int mode);

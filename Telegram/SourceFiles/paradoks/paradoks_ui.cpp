@@ -1298,11 +1298,70 @@ void SettingsBox(
 			}),
 		}));
 	});
+	const auto tintTitle = [] {
+		static const auto names = std::vector<QString>{
+			u"rangsiz"_q, u"moviy"_q, u"binafsha"_q,
+			u"yashil"_q, u"pushti"_q, u"oltin"_q,
+		};
+		return u"Shisha rangi: "_q + names[GlassTint()];
+	};
+	const auto tintLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(tintTitle());
+	const auto tintButton = AddRow(box, tintLabel->value(), &st::menuIconPalette);
+	tintButton->setClickedCallback([=] {
+		static const auto options = std::vector<QString>{
+			u"Rangsiz"_q, u"Moviy"_q, u"Binafsha"_q,
+			u"Yashil"_q, u"Pushti"_q, u"Oltin"_q,
+		};
+		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
+			.title = rpl::single(u"Shisha rangi"_q),
+			.options = options,
+			.initialSelection = GlassTint(),
+			.callback = Fn<void(int)>([=](int value) {
+				SetGlassTint(value);
+				*tintLabel = tintTitle();
+			}),
+		}));
+	});
+	const auto edgeTitle = [] {
+		static const auto names = std::vector<QString>{
+			u"yo'q"_q, u"yumshoq"_q, u"oddiy"_q, u"yorqin"_q,
+		};
+		return u"Chekka yorug'ligi: "_q + names[GlassEdge()];
+	};
+	const auto edgeLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(edgeTitle());
+	const auto edgeButton = AddRow(box, edgeLabel->value(), &st::menuIconPalette);
+	edgeButton->setClickedCallback([=] {
+		static const auto options = std::vector<QString>{
+			u"Yo'q"_q, u"Yumshoq"_q, u"Oddiy"_q, u"Yorqin"_q,
+		};
+		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
+			.title = rpl::single(u"Chekka yorug'ligi"_q),
+			.options = options,
+			.initialSelection = GlassEdge(),
+			.callback = Fn<void(int)>([=](int value) {
+				SetGlassEdge(value);
+				*edgeLabel = edgeTitle();
+			}),
+		}));
+	});
+	const auto refractTitle = [] {
+		return u"Sinish effekti (chekkada rangli nur): "_q
+			+ (GlassRefract() ? u"yoqilgan"_q : u"o'chiq"_q);
+	};
+	const auto refractLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(refractTitle());
+	const auto refractButton = AddRow(box, refractLabel->value(), &st::menuIconPalette);
+	refractButton->setClickedCallback([=] {
+		SetGlassRefract(!GlassRefract());
+		*refractLabel = refractTitle();
+	});
 	AddText(
 		box,
 		u"Yuborgan xabarlaringizning orqa foni shishaday yarim shaffof "
-		"bo'ladi, yorug' chekka va yaltirash qo'shiladi. Chat foni rasmli "
-		"yoki rangli bo'lsa chiroyliroq ko'rinadi."_q);
+		"bo'ladi. \"Kuchli\" eng shaffof. Haqiqiy xiralashtirish yo'q: "
+		"chat foni rasmli yoki rangli bo'lsa chiroyliroq ko'rinadi."_q);
 	AddToggle(
 		box,
 		Flag::FinishDownloads,

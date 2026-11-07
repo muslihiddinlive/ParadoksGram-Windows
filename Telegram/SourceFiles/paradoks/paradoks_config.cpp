@@ -66,6 +66,9 @@ std::atomic<int> ScheduleEnd = kDefaultScheduleEnd;
 std::atomic<int> VoiceMode = 0;
 std::atomic<int> DownloadModeValue = -1;
 std::atomic<int> GlassBubbleValue = -1;
+std::atomic<int> GlassTintValue = -1;
+std::atomic<int> GlassEdgeValue = -1;
+std::atomic<int> GlassRefractValue = -1;
 std::atomic<int> IconVariant = 0;
 std::once_flag LoadFlag;
 
@@ -281,6 +284,50 @@ int GlassBubbleLevel() {
 		GlassBubbleValue.store(value);
 	}
 	return value;
+}
+
+int GlassTint() {
+	auto value = GlassTintValue.load();
+	if (value < 0) {
+		value = std::clamp(IntSetting(u"glass_tint"_q, 0), 0, 5);
+		GlassTintValue.store(value);
+	}
+	return value;
+}
+
+void SetGlassTint(int value) {
+	value = std::clamp(value, 0, 5);
+	GlassTintValue.store(value);
+	SetIntSetting(u"glass_tint"_q, value);
+}
+
+int GlassEdge() {
+	auto value = GlassEdgeValue.load();
+	if (value < 0) {
+		value = std::clamp(IntSetting(u"glass_edge"_q, 2), 0, 3);
+		GlassEdgeValue.store(value);
+	}
+	return value;
+}
+
+void SetGlassEdge(int value) {
+	value = std::clamp(value, 0, 3);
+	GlassEdgeValue.store(value);
+	SetIntSetting(u"glass_edge"_q, value);
+}
+
+bool GlassRefract() {
+	auto value = GlassRefractValue.load();
+	if (value < 0) {
+		value = IntSetting(u"glass_refract"_q, 0) ? 1 : 0;
+		GlassRefractValue.store(value);
+	}
+	return value != 0;
+}
+
+void SetGlassRefract(bool value) {
+	GlassRefractValue.store(value ? 1 : 0);
+	SetIntSetting(u"glass_refract"_q, value ? 1 : 0);
 }
 
 void SetGlassBubbleLevel(int level) {

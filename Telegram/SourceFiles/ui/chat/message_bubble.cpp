@@ -396,40 +396,77 @@ void PaintGlassOverlay(QPainter &p, const SimpleBubble &args, int level) {
 	path.closeSubpath();
 
 	const auto hq = PainterHighQualityEnabler(p);
-	const auto strength = (level == 1) ? 0.7 : (level == 2) ? 1. : 1.3;
-	if (args.rounding.topLeft != Corner::None
-		|| args.rounding.topRight != Corner::None) {
+	static const QColor tints[] = {
+		QColor(255, 255, 255),
+		QColor(90, 167, 255),
+		QColor(170, 120, 255),
+		QColor(60, 220, 150),
+		QColor(255, 110, 170),
+		QColor(255, 190, 70),
+	};
+	const auto tint = Paradoks::GlassTint();
+	const auto fillAlpha = (tint == 0)
+		? ((level == 1) ? 0.34 : (level == 2) ? 0.22 : 0.12)
+		: ((level == 1) ? 0.62 : (level == 2) ? 0.46 : 0.30);
+	auto fill = tints[tint];
+	fill.setAlphaF(fillAlpha);
+	p.setPen(Qt::NoPen);
+	p.setBrush(fill);
+	p.drawPath(path);
+
+	const auto edgeLevel = Paradoks::GlassEdge();
+	const auto strength = (edgeLevel == 0)
+		? 0.
+		: (edgeLevel == 1)
+		? 0.6
+		: (edgeLevel == 2)
+		? 1.
+		: 1.4;
+	if (strength > 0.
+		&& (args.rounding.topLeft != Corner::None
+			|| args.rounding.topRight != Corner::None)) {
 		auto sheen = QLinearGradient(
 			rect.topLeft(),
 			QPointF(rect.left(), rect.top() + rect.height() * 0.55));
-		sheen.setColorAt(0., QColor(255, 255, 255, int(85 * strength)));
-		sheen.setColorAt(0.35, QColor(255, 255, 255, int(20 * strength)));
+		sheen.setColorAt(0., QColor(255, 255, 255, std::min(255, int(85 * strength))));
+		sheen.setColorAt(0.35, QColor(255, 255, 255, std::min(255, int(20 * strength))));
 		sheen.setColorAt(1., QColor(255, 255, 255, 0));
-		p.setPen(Qt::NoPen);
 		p.setBrush(sheen);
 		p.drawPath(path);
 	}
 	p.setBrush(Qt::NoBrush);
-	p.setPen(QPen(QColor(255, 255, 255, int(110 * strength)), 1.));
-	p.drawPath(path);
+	if (Paradoks::GlassRefract()) {
+		// Imitation of light bending at the rim: coloured fringes.
+		p.save();
+		p.translate(-0.8, -0.8);
+		p.setPen(QPen(QColor(80, 216, 255, 90), 1.5));
+		p.drawPath(path);
+		p.restore();
+		p.save();
+		p.translate(0.8, 0.8);
+		p.setPen(QPen(QColor(255, 128, 176, 90), 1.5));
+		p.drawPath(path);
+		p.restore();
+	}
+	if (strength > 0.) {
+		p.setPen(QPen(QColor(255, 255, 255, std::min(255, int(110 * strength))), 1.));
+		p.drawPath(path);
+	}
 }
 
 } // namespace
 
 void PaintBubble(QPainter &p, const SimpleBubble &args) {
-	const auto glass = args.outbg ? Paradoks::GlassBubbleLevel() : 0;
-	const auto was = p.opacity();
-	if (glass > 0) {
-		p.setOpacity(was * ((glass == 1) ? 0.80 : (glass == 2) ? 0.62 : 0.46));
+	if (args.outbg) {
+		if (const auto glass = Paradoks::GlassBubbleLevel()) {
+			PaintGlassOverlay(p, args, glass);
+			return;
+		}
 	}
 	if (UsePatternBubble(args)) {
 		PaintPatternBubble(p, args);
 	} else {
 		PaintSolidBubble(p, args);
-	}
-	if (glass > 0) {
-		p.setOpacity(was);
-		PaintGlassOverlay(p, args, glass);
 	}
 }
 
