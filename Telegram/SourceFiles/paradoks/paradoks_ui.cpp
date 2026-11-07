@@ -1266,6 +1266,43 @@ void SettingsBox(
 		"internetda \"Tez\" rejim tezroq. Juda ko'p oqim Telegram "
 		"cheklovini keltirib chiqarishi mumkin. Yangi yuklashlarga "
 		"qo'llanadi."_q);
+	const auto glassTitle = [] {
+		const auto level = GlassBubbleLevel();
+		return u"Xabar orqa foni: liquid glass ("_q
+			+ ((level == 1)
+				? u"yengil"_q
+				: (level == 2)
+				? u"o'rtacha"_q
+				: (level == 3)
+				? u"kuchli"_q
+				: u"o'chiq"_q)
+			+ ')';
+	};
+	const auto glassLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(glassTitle());
+	const auto glassButton = AddRow(box, glassLabel->value(), &st::menuIconPalette);
+	glassButton->setClickedCallback([=] {
+		static const auto options = std::vector<QString>{
+			u"O'chiq (oddiy moviy)"_q,
+			u"Yengil"_q,
+			u"O'rtacha"_q,
+			u"Kuchli (eng shaffof)"_q,
+		};
+		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
+			.title = rpl::single(u"Xabar orqa foni: liquid glass"_q),
+			.options = options,
+			.initialSelection = GlassBubbleLevel(),
+			.callback = Fn<void(int)>([=](int value) {
+				SetGlassBubbleLevel(value);
+				*glassLabel = glassTitle();
+			}),
+		}));
+	});
+	AddText(
+		box,
+		u"Yuborgan xabarlaringizning orqa foni shishaday yarim shaffof "
+		"bo'ladi, yorug' chekka va yaltirash qo'shiladi. Chat foni rasmli "
+		"yoki rangli bo'lsa chiroyliroq ko'rinadi."_q);
 	AddToggle(
 		box,
 		Flag::FinishDownloads,

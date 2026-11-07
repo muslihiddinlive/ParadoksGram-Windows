@@ -80,6 +80,9 @@ void SetStringSetting(const QString &key, const QString &value);
 // Same, but "auto" (3) resolved to 0/1/2 by the measured speed.
 [[nodiscard]] int EffectiveDownloadMode();
 void SetDownloadMode(int mode);
+// Liquid glass look of outgoing bubbles: 0 off, 1 light, 2 medium, 3 strong.
+[[nodiscard]] int GlassBubbleLevel();
+void SetGlassBubbleLevel(int level);
 
 [[nodiscard]] int VoiceEffect();
 void SetVoiceEffect(int mode);

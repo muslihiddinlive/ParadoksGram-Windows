@@ -65,6 +65,7 @@ std::atomic<int> ScheduleStart = kDefaultScheduleStart;
 std::atomic<int> ScheduleEnd = kDefaultScheduleEnd;
 std::atomic<int> VoiceMode = 0;
 std::atomic<int> DownloadModeValue = -1;
+std::atomic<int> GlassBubbleValue = -1;
 std::atomic<int> IconVariant = 0;
 std::once_flag LoadFlag;
 
@@ -271,6 +272,21 @@ int EffectiveDownloadMode() {
 	}
 	current = next;
 	return next;
+}
+
+int GlassBubbleLevel() {
+	auto value = GlassBubbleValue.load();
+	if (value < 0) {
+		value = std::clamp(IntSetting(u"glass_bubbles"_q, 2), 0, 3);
+		GlassBubbleValue.store(value);
+	}
+	return value;
+}
+
+void SetGlassBubbleLevel(int level) {
+	level = std::clamp(level, 0, 3);
+	GlassBubbleValue.store(level);
+	SetIntSetting(u"glass_bubbles"_q, level);
 }
 
 void SetDownloadMode(int mode) {
