@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_download_manager.h"
 #include "data/data_photo.h"
 #include "main/main_session.h"
+#include "paradoks/paradoks_media.h"
 
 FileClickHandler::FileClickHandler(FullMsgId context)
 : _context(context) {
@@ -83,6 +84,7 @@ void DocumentSaveClickHandler::Save(
 	if (data->forbidsFileSave()) {
 		return;
 	}
+	origin = Paradoks::RestoreOrigin(origin, &data->session());
 	auto savename = QString();
 	if (mode == Mode::ToCacheOrFile && data->saveToCache()) {
 		data->save(origin, savename);
@@ -225,7 +227,7 @@ void PhotoSaveClickHandler::onClickImpl() const {
 		return;
 	} else {
 		data->clearFailed(Data::PhotoSize::Large);
-		data->load(context());
+		data->load(Paradoks::RestoreOrigin(Data::FileOrigin(context()), &data->session()));
 	}
 }
 

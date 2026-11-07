@@ -471,6 +471,29 @@ std::optional<std::pair<uint64, int64>> DbCopyFor(uint64 peer, int64 id) {
 		: std::nullopt;
 }
 
+Data::FileOrigin RestoreOrigin(
+		Data::FileOrigin origin,
+		not_null<Main::Session*> session) {
+	const auto id = std::get_if<Data::FileOriginMessage>(&origin.data);
+	if (!id || !*id || !Enabled(Flag::RestoreBackupMedia)) {
+		return origin;
+	}
+	const auto item = session->data().message(*id);
+	if (!item || !item->media() || !IsDeleted(item)) {
+		return origin;
+	}
+	const auto copy = DbCopyFor(
+		item->history()->peer->id.value,
+		item->id.bare);
+	if (!copy) {
+		return origin;
+	}
+	const auto copyItem = session->data().message(
+		PeerId(copy->first),
+		MsgId(copy->second));
+	return copyItem ? Data::FileOrigin(copyItem->fullId()) : origin;
+}
+
 void RetryMedia(not_null<HistoryItem*> item) {
 	const auto media = item->media();
 	if (!media || !SavedMediaPath(item).isEmpty()) {
