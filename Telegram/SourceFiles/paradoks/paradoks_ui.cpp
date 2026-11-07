@@ -901,7 +901,35 @@ void AddBackupSection(
 	AddToggle(
 		box,
 		Flag::PreSaveMedia,
-		u"Media'ni oldindan saqlash (25 MB gacha)"_q);
+		u"Media'ni oldindan saqlash"_q);
+	const auto preSizeTitle = [] {
+		return u"Oldindan saqlash: eng katta fayl "_q
+			+ QString::number(PreSaveMaxMb()) + u" MB"_q;
+	};
+	const auto preSizeLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(preSizeTitle());
+	const auto preSizeButton = AddRow(box, preSizeLabel->value(), &st::menuIconDownload);
+	preSizeButton->setClickedCallback([=] {
+		static const auto sizes = std::vector<int>{ 10, 25, 50, 100, 150 };
+		static const auto options = std::vector<QString>{
+			u"10 MB"_q, u"25 MB"_q, u"50 MB"_q, u"100 MB"_q, u"150 MB"_q,
+		};
+		auto selected = 1;
+		for (auto i = 0; i != int(sizes.size()); ++i) {
+			if (sizes[i] == PreSaveMaxMb()) {
+				selected = i;
+			}
+		}
+		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
+			.title = rpl::single(u"Eng katta fayl hajmi"_q),
+			.options = options,
+			.initialSelection = selected,
+			.callback = Fn<void(int)>([=](int value) {
+				SetPreSaveMaxMb(sizes[value]);
+				*preSizeLabel = preSizeTitle();
+			}),
+		}));
+	});
 	AddToggle(
 		box,
 		Flag::RestoreBackupMedia,
@@ -1345,6 +1373,17 @@ void SettingsBox(
 				*edgeLabel = edgeTitle();
 			}),
 		}));
+	});
+	const auto incomingTitle = [] {
+		return u"Kelgan xabarlarga ham liquid glass: "_q
+			+ (GlassIncoming() ? u"yoqilgan"_q : u"o'chiq"_q);
+	};
+	const auto incomingLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(incomingTitle());
+	const auto incomingButton = AddRow(box, incomingLabel->value(), &st::menuIconPalette);
+	incomingButton->setClickedCallback([=] {
+		SetGlassIncoming(!GlassIncoming());
+		*incomingLabel = incomingTitle();
 	});
 	const auto refractTitle = [] {
 		return u"Sinish effekti (chekkada rangli nur): "_q

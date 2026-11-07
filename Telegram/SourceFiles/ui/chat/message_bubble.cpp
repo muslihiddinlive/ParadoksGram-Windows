@@ -457,7 +457,7 @@ void PaintGlassOverlay(QPainter &p, const SimpleBubble &args, int level) {
 } // namespace
 
 void PaintBubble(QPainter &p, const SimpleBubble &args) {
-	if (args.outbg) {
+	if (args.outbg || Paradoks::GlassIncoming()) {
 		if (const auto glass = Paradoks::GlassBubbleLevel()) {
 			PaintGlassOverlay(p, args, glass);
 			return;

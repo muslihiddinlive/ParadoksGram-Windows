@@ -62,7 +62,6 @@ namespace Paradoks {
 namespace {
 
 constexpr auto kMaxMediaSize = int64(150) * 1024 * 1024;
-constexpr auto kPreSaveMaxSize = int64(25) * 1024 * 1024;
 constexpr auto kPreSaveKeepDays = 3;
 constexpr auto kForwardInterval = crl::time(1500);
 constexpr auto kMaxQueue = 100;
@@ -169,7 +168,7 @@ void PreSave(not_null<HistoryItem*> item) {
 	const auto id = item->id.bare;
 	QDir().mkpath(PreFolder());
 	if (const auto document = media->document()) {
-		if (document->size <= 0 || document->size > kPreSaveMaxSize) {
+		if (document->size <= 0 || document->size > int64(PreSaveMaxMb()) * 1024 * 1024) {
 			return;
 		}
 		Debug::Log(u"presave document %1_%2 size=%3"_q.arg(peer).arg(id).arg(document->size));

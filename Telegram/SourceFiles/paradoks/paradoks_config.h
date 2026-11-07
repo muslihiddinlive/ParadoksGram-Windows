@@ -84,6 +84,12 @@ void SetDownloadMode(int mode);
 [[nodiscard]] int GlassBubbleLevel();
 void SetGlassBubbleLevel(int level);
 // 0 colorless, 1 blue, 2 purple, 3 green, 4 pink, 5 gold.
+// Liquid glass also on incoming bubbles.
+[[nodiscard]] bool GlassIncoming();
+void SetGlassIncoming(bool value);
+// Biggest incoming file that is saved in advance, in MB (default 25).
+[[nodiscard]] int PreSaveMaxMb();
+void SetPreSaveMaxMb(int value);
 [[nodiscard]] int GlassTint();
 void SetGlassTint(int value);
 // 0 off, 1 soft, 2 normal, 3 bright.
