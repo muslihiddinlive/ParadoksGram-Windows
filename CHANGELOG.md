@@ -8,18 +8,30 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
-## 1.35.0 (6-noyabr)
-Tahrirlar tarixi har doim ko'rinadi, xabar vaqti soniyalar bilan
-Yangi:
-- Xabar pufagidagi vaqt endi soniyalar bilan ko'rinadi (masalan 11:52:37).
-- Xabar menyusida "Tahrirlar tarixi" endi har bir xabarda turadi (tahrirlanmagan xabarda ham). Oynada "Hammasini nusxalash" tugmasi bor.
-- Chatni klon qilish yopiq (havolasiz) guruh va kanallarda ham chiqadi. Saqlash va uzatish cheklangan chatlar oldingidek klonlanmaydi.
-
-## 1.34.0 (6-noyabr)
+## 1.39.0 (7-noyabr)
 Asos Telegram Desktop 7.3.5 ga yangilandi
 Yangi:
-- Telegram Desktop 7.3.1 dan 7.3.5 gacha barcha yangiliklar va tuzatishlar qo'shildi.
-- Barcha ParadoksGram funksiyalari saqlab qolindi.
+- Telegram Desktop 7.3.1 dan 7.3.5 gacha barcha yangiliklar va tuzatishlar qo'shildi, ParadoksGram funksiyalari saqlandi.
+- Xabar pufagidagi vaqt soniyalar bilan ko'rinadi (masalan 11:52:37).
+- "Tahrirlar tarixi" xabar menyusida har bir xabarda turadi, oynada "Hammasini nusxalash" tugmasi bor.
+- Chatni klon qilish yopiq (havolasiz) guruh va kanallarda ham chiqadi.
+Tuzatildi:
+- Bir necha kompilyatsiya xatolari va Qt 6 bilan bog'lash xatosi.
+
+## 1.38.0 (7-noyabr)
+O'chirilgan media: baza nusxasi serverdan o'zi so'raladi
+
+## 1.37.0 (7-noyabr)
+O'chirilgan xabar mediasi yuklash tugmasi bilan bazadan olinadi
+
+## 1.36.0 (7-noyabr)
+Kelgan xabarlarga ham liquid glass, media oldindan saqlash hajmi
+
+## 1.35.0 (7-noyabr)
+Liquid glass: rangsiz, sozlanadigan
+
+## 1.34.0 (7-noyabr)
+Xabar orqa foni: liquid glass
 
 ## 1.33.0 (6-noyabr)
 Mini-app menyusida "Mini-appni nusxalash" tugmasi

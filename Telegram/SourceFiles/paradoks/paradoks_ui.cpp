@@ -915,7 +915,35 @@ void AddBackupSection(
 	AddToggle(
 		box,
 		Flag::PreSaveMedia,
-		u"Media'ni oldindan saqlash (25 MB gacha)"_q);
+		u"Media'ni oldindan saqlash"_q);
+	const auto preSizeTitle = [] {
+		return u"Oldindan saqlash: eng katta fayl "_q
+			+ QString::number(PreSaveMaxMb()) + u" MB"_q;
+	};
+	const auto preSizeLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(preSizeTitle());
+	const auto preSizeButton = AddRow(box, preSizeLabel->value(), &st::menuIconDownload);
+	preSizeButton->setClickedCallback([=] {
+		static const auto sizes = std::vector<int>{ 10, 25, 50, 100, 150 };
+		static const auto options = std::vector<QString>{
+			u"10 MB"_q, u"25 MB"_q, u"50 MB"_q, u"100 MB"_q, u"150 MB"_q,
+		};
+		auto selected = 1;
+		for (auto i = 0; i != int(sizes.size()); ++i) {
+			if (sizes[i] == PreSaveMaxMb()) {
+				selected = i;
+			}
+		}
+		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
+			.title = rpl::single(u"Eng katta fayl hajmi"_q),
+			.options = options,
+			.initialSelection = selected,
+			.callback = Fn<void(int)>([=](int value) {
+				SetPreSaveMaxMb(sizes[value]);
+				*preSizeLabel = preSizeTitle();
+			}),
+		}));
+	});
 	AddToggle(
 		box,
 		Flag::RestoreBackupMedia,
@@ -1280,6 +1308,113 @@ void SettingsBox(
 		"internetda \"Tez\" rejim tezroq. Juda ko'p oqim Telegram "
 		"cheklovini keltirib chiqarishi mumkin. Yangi yuklashlarga "
 		"qo'llanadi."_q);
+	const auto glassTitle = [] {
+		const auto level = GlassBubbleLevel();
+		return u"Xabar orqa foni: liquid glass ("_q
+			+ ((level == 1)
+				? u"yengil"_q
+				: (level == 2)
+				? u"o'rtacha"_q
+				: (level == 3)
+				? u"kuchli"_q
+				: u"o'chiq"_q)
+			+ ')';
+	};
+	const auto glassLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(glassTitle());
+	const auto glassButton = AddRow(box, glassLabel->value(), &st::menuIconPalette);
+	glassButton->setClickedCallback([=] {
+		static const auto options = std::vector<QString>{
+			u"O'chiq (oddiy moviy)"_q,
+			u"Yengil"_q,
+			u"O'rtacha"_q,
+			u"Kuchli (eng shaffof)"_q,
+		};
+		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
+			.title = rpl::single(u"Xabar orqa foni: liquid glass"_q),
+			.options = options,
+			.initialSelection = GlassBubbleLevel(),
+			.callback = Fn<void(int)>([=](int value) {
+				SetGlassBubbleLevel(value);
+				*glassLabel = glassTitle();
+			}),
+		}));
+	});
+	const auto tintTitle = [] {
+		static const auto names = std::vector<QString>{
+			u"rangsiz"_q, u"moviy"_q, u"binafsha"_q,
+			u"yashil"_q, u"pushti"_q, u"oltin"_q,
+		};
+		return u"Shisha rangi: "_q + names[GlassTint()];
+	};
+	const auto tintLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(tintTitle());
+	const auto tintButton = AddRow(box, tintLabel->value(), &st::menuIconPalette);
+	tintButton->setClickedCallback([=] {
+		static const auto options = std::vector<QString>{
+			u"Rangsiz"_q, u"Moviy"_q, u"Binafsha"_q,
+			u"Yashil"_q, u"Pushti"_q, u"Oltin"_q,
+		};
+		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
+			.title = rpl::single(u"Shisha rangi"_q),
+			.options = options,
+			.initialSelection = GlassTint(),
+			.callback = Fn<void(int)>([=](int value) {
+				SetGlassTint(value);
+				*tintLabel = tintTitle();
+			}),
+		}));
+	});
+	const auto edgeTitle = [] {
+		static const auto names = std::vector<QString>{
+			u"yo'q"_q, u"yumshoq"_q, u"oddiy"_q, u"yorqin"_q,
+		};
+		return u"Chekka yorug'ligi: "_q + names[GlassEdge()];
+	};
+	const auto edgeLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(edgeTitle());
+	const auto edgeButton = AddRow(box, edgeLabel->value(), &st::menuIconPalette);
+	edgeButton->setClickedCallback([=] {
+		static const auto options = std::vector<QString>{
+			u"Yo'q"_q, u"Yumshoq"_q, u"Oddiy"_q, u"Yorqin"_q,
+		};
+		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
+			.title = rpl::single(u"Chekka yorug'ligi"_q),
+			.options = options,
+			.initialSelection = GlassEdge(),
+			.callback = Fn<void(int)>([=](int value) {
+				SetGlassEdge(value);
+				*edgeLabel = edgeTitle();
+			}),
+		}));
+	});
+	const auto incomingTitle = [] {
+		return u"Kelgan xabarlarga ham liquid glass: "_q
+			+ (GlassIncoming() ? u"yoqilgan"_q : u"o'chiq"_q);
+	};
+	const auto incomingLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(incomingTitle());
+	const auto incomingButton = AddRow(box, incomingLabel->value(), &st::menuIconPalette);
+	incomingButton->setClickedCallback([=] {
+		SetGlassIncoming(!GlassIncoming());
+		*incomingLabel = incomingTitle();
+	});
+	const auto refractTitle = [] {
+		return u"Sinish effekti (chekkada rangli nur): "_q
+			+ (GlassRefract() ? u"yoqilgan"_q : u"o'chiq"_q);
+	};
+	const auto refractLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(refractTitle());
+	const auto refractButton = AddRow(box, refractLabel->value(), &st::menuIconPalette);
+	refractButton->setClickedCallback([=] {
+		SetGlassRefract(!GlassRefract());
+		*refractLabel = refractTitle();
+	});
+	AddText(
+		box,
+		u"Yuborgan xabarlaringizning orqa foni shishaday yarim shaffof "
+		"bo'ladi. \"Kuchli\" eng shaffof. Haqiqiy xiralashtirish yo'q: "
+		"chat foni rasmli yoki rangli bo'lsa chiroyliroq ko'rinadi."_q);
 	AddToggle(
 		box,
 		Flag::FinishDownloads,

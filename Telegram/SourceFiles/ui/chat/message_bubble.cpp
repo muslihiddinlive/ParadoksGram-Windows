@@ -11,6 +11,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/image/image_prepare.h"
 #include "ui/chat/chat_style.h"
 #include "ui/chat/torn_edge.h"
+#include "paradoks/paradoks_config.h"
+#include "ui/painter.h"
+#include <QtGui/QPainterPath>
 #include "styles/style_chat.h"
 #include "styles/style_chat_style.h"
 
@@ -345,7 +348,121 @@ void FinishBubblePatternOnMain(not_null<BubblePattern*> pattern) {
 		QImage::Format_ARGB32_Premultiplied);
 }
 
+namespace {
+
+// ParadoksGram: liquid glass look of outgoing bubbles.
+void PaintGlassOverlay(QPainter &p, const SimpleBubble &args, int level) {
+	const auto rect = QRectF(args.geometry);
+	if (rect.width() < 8 || rect.height() < 8) {
+		return;
+	}
+	const auto small = qreal(BubbleRadiusSmall());
+	const auto large = qreal(BubbleRadiusLarge());
+	const auto radius = [&](Corner corner) {
+		return (corner == Corner::Large)
+			? large
+			: (corner == Corner::Small)
+			? small
+			: 0.;
+	};
+	const auto tl = radius(args.rounding.topLeft);
+	const auto tr = radius(args.rounding.topRight);
+	const auto br = radius(args.rounding.bottomRight);
+	const auto bl = radius(args.rounding.bottomLeft);
+	auto path = QPainterPath();
+	path.moveTo(rect.left() + tl, rect.top());
+	path.lineTo(rect.right() - tr, rect.top());
+	if (tr > 0.) {
+		path.arcTo(QRectF(rect.right() - 2 * tr, rect.top(), 2 * tr, 2 * tr), 90, -90);
+	} else {
+		path.lineTo(rect.right(), rect.top());
+	}
+	path.lineTo(rect.right(), rect.bottom() - br);
+	if (br > 0.) {
+		path.arcTo(QRectF(rect.right() - 2 * br, rect.bottom() - 2 * br, 2 * br, 2 * br), 0, -90);
+	} else {
+		path.lineTo(rect.right(), rect.bottom());
+	}
+	path.lineTo(rect.left() + bl, rect.bottom());
+	if (bl > 0.) {
+		path.arcTo(QRectF(rect.left(), rect.bottom() - 2 * bl, 2 * bl, 2 * bl), 270, -90);
+	} else {
+		path.lineTo(rect.left(), rect.bottom());
+	}
+	path.lineTo(rect.left(), rect.top() + tl);
+	if (tl > 0.) {
+		path.arcTo(QRectF(rect.left(), rect.top(), 2 * tl, 2 * tl), 180, -90);
+	}
+	path.closeSubpath();
+
+	const auto hq = PainterHighQualityEnabler(p);
+	static const QColor tints[] = {
+		QColor(255, 255, 255),
+		QColor(90, 167, 255),
+		QColor(170, 120, 255),
+		QColor(60, 220, 150),
+		QColor(255, 110, 170),
+		QColor(255, 190, 70),
+	};
+	const auto tint = Paradoks::GlassTint();
+	const auto fillAlpha = (tint == 0)
+		? ((level == 1) ? 0.34 : (level == 2) ? 0.22 : 0.12)
+		: ((level == 1) ? 0.62 : (level == 2) ? 0.46 : 0.30);
+	auto fill = tints[tint];
+	fill.setAlphaF(fillAlpha);
+	p.setPen(Qt::NoPen);
+	p.setBrush(fill);
+	p.drawPath(path);
+
+	const auto edgeLevel = Paradoks::GlassEdge();
+	const auto strength = (edgeLevel == 0)
+		? 0.
+		: (edgeLevel == 1)
+		? 0.6
+		: (edgeLevel == 2)
+		? 1.
+		: 1.4;
+	if (strength > 0.
+		&& (args.rounding.topLeft != Corner::None
+			|| args.rounding.topRight != Corner::None)) {
+		auto sheen = QLinearGradient(
+			rect.topLeft(),
+			QPointF(rect.left(), rect.top() + rect.height() * 0.55));
+		sheen.setColorAt(0., QColor(255, 255, 255, std::min(255, int(85 * strength))));
+		sheen.setColorAt(0.35, QColor(255, 255, 255, std::min(255, int(20 * strength))));
+		sheen.setColorAt(1., QColor(255, 255, 255, 0));
+		p.setBrush(sheen);
+		p.drawPath(path);
+	}
+	p.setBrush(Qt::NoBrush);
+	if (Paradoks::GlassRefract()) {
+		// Imitation of light bending at the rim: coloured fringes.
+		p.save();
+		p.translate(-0.8, -0.8);
+		p.setPen(QPen(QColor(80, 216, 255, 90), 1.5));
+		p.drawPath(path);
+		p.restore();
+		p.save();
+		p.translate(0.8, 0.8);
+		p.setPen(QPen(QColor(255, 128, 176, 90), 1.5));
+		p.drawPath(path);
+		p.restore();
+	}
+	if (strength > 0.) {
+		p.setPen(QPen(QColor(255, 255, 255, std::min(255, int(110 * strength))), 1.));
+		p.drawPath(path);
+	}
+}
+
+} // namespace
+
 void PaintBubble(QPainter &p, const SimpleBubble &args) {
+	if (args.outbg || Paradoks::GlassIncoming()) {
+		if (const auto glass = Paradoks::GlassBubbleLevel()) {
+			PaintGlassOverlay(p, args, glass);
+			return;
+		}
+	}
 	if (UsePatternBubble(args)) {
 		PaintPatternBubble(p, args);
 	} else {

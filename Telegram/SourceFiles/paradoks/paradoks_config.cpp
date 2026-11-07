@@ -65,6 +65,12 @@ std::atomic<int> ScheduleStart = kDefaultScheduleStart;
 std::atomic<int> ScheduleEnd = kDefaultScheduleEnd;
 std::atomic<int> VoiceMode = 0;
 std::atomic<int> DownloadModeValue = -1;
+std::atomic<int> GlassBubbleValue = -1;
+std::atomic<int> GlassTintValue = -1;
+std::atomic<int> GlassIncomingValue = -1;
+std::atomic<int> PreSaveMaxMbValue = -1;
+std::atomic<int> GlassEdgeValue = -1;
+std::atomic<int> GlassRefractValue = -1;
 std::atomic<int> IconVariant = 0;
 std::once_flag LoadFlag;
 
@@ -271,6 +277,94 @@ int EffectiveDownloadMode() {
 	}
 	current = next;
 	return next;
+}
+
+int GlassBubbleLevel() {
+	auto value = GlassBubbleValue.load();
+	if (value < 0) {
+		value = std::clamp(IntSetting(u"glass_bubbles"_q, 2), 0, 3);
+		GlassBubbleValue.store(value);
+	}
+	return value;
+}
+
+bool GlassIncoming() {
+	auto value = GlassIncomingValue.load();
+	if (value < 0) {
+		value = IntSetting(u"glass_incoming"_q, 1) ? 1 : 0;
+		GlassIncomingValue.store(value);
+	}
+	return value != 0;
+}
+
+void SetGlassIncoming(bool value) {
+	GlassIncomingValue.store(value ? 1 : 0);
+	SetIntSetting(u"glass_incoming"_q, value ? 1 : 0);
+}
+
+int PreSaveMaxMb() {
+	auto value = PreSaveMaxMbValue.load();
+	if (value < 0) {
+		value = std::clamp(IntSetting(u"pre_save_max_mb"_q, 25), 1, 150);
+		PreSaveMaxMbValue.store(value);
+	}
+	return value;
+}
+
+void SetPreSaveMaxMb(int value) {
+	value = std::clamp(value, 1, 150);
+	PreSaveMaxMbValue.store(value);
+	SetIntSetting(u"pre_save_max_mb"_q, value);
+}
+
+int GlassTint() {
+	auto value = GlassTintValue.load();
+	if (value < 0) {
+		value = std::clamp(IntSetting(u"glass_tint"_q, 0), 0, 5);
+		GlassTintValue.store(value);
+	}
+	return value;
+}
+
+void SetGlassTint(int value) {
+	value = std::clamp(value, 0, 5);
+	GlassTintValue.store(value);
+	SetIntSetting(u"glass_tint"_q, value);
+}
+
+int GlassEdge() {
+	auto value = GlassEdgeValue.load();
+	if (value < 0) {
+		value = std::clamp(IntSetting(u"glass_edge"_q, 2), 0, 3);
+		GlassEdgeValue.store(value);
+	}
+	return value;
+}
+
+void SetGlassEdge(int value) {
+	value = std::clamp(value, 0, 3);
+	GlassEdgeValue.store(value);
+	SetIntSetting(u"glass_edge"_q, value);
+}
+
+bool GlassRefract() {
+	auto value = GlassRefractValue.load();
+	if (value < 0) {
+		value = IntSetting(u"glass_refract"_q, 0) ? 1 : 0;
+		GlassRefractValue.store(value);
+	}
+	return value != 0;
+}
+
+void SetGlassRefract(bool value) {
+	GlassRefractValue.store(value ? 1 : 0);
+	SetIntSetting(u"glass_refract"_q, value ? 1 : 0);
+}
+
+void SetGlassBubbleLevel(int level) {
+	level = std::clamp(level, 0, 3);
+	GlassBubbleValue.store(level);
+	SetIntSetting(u"glass_bubbles"_q, level);
 }
 
 void SetDownloadMode(int mode) {

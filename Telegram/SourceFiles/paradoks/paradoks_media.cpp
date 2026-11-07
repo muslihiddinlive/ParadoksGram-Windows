@@ -62,7 +62,6 @@ namespace Paradoks {
 namespace {
 
 constexpr auto kMaxMediaSize = int64(150) * 1024 * 1024;
-constexpr auto kPreSaveMaxSize = int64(25) * 1024 * 1024;
 constexpr auto kPreSaveKeepDays = 3;
 constexpr auto kForwardInterval = crl::time(1500);
 constexpr auto kMaxQueue = 100;
@@ -169,7 +168,7 @@ void PreSave(not_null<HistoryItem*> item) {
 	const auto id = item->id.bare;
 	QDir().mkpath(PreFolder());
 	if (const auto document = media->document()) {
-		if (document->size <= 0 || document->size > kPreSaveMaxSize) {
+		if (document->size <= 0 || document->size > int64(PreSaveMaxMb()) * 1024 * 1024) {
 			return;
 		}
 		Debug::Log(u"presave document %1_%2 size=%3"_q.arg(peer).arg(id).arg(document->size));
@@ -470,6 +469,62 @@ std::optional<std::pair<uint64, int64>> DbCopyFor(uint64 peer, int64 id) {
 	return (i != map.end())
 		? std::make_optional(i->second)
 		: std::nullopt;
+}
+
+Data::FileOrigin RestoreOrigin(
+		Data::FileOrigin origin,
+		not_null<Main::Session*> session) {
+	const auto id = std::get_if<Data::FileOriginMessage>(&origin.data);
+	if (!id || !*id || !Enabled(Flag::RestoreBackupMedia)) {
+		return origin;
+	}
+	const auto item = session->data().message(*id);
+	if (!item || !item->media() || !IsDeleted(item)) {
+		return origin;
+	}
+	const auto copy = DbCopyFor(
+		item->history()->peer->id.value,
+		item->id.bare);
+	if (!copy) {
+		return origin;
+	}
+	const auto copyItem = session->data().message(
+		PeerId(copy->first),
+		MsgId(copy->second));
+	return copyItem ? Data::FileOrigin(copyItem->fullId()) : origin;
+}
+
+bool LoadDbCopyFirst(
+		Data::FileOrigin origin,
+		not_null<Main::Session*> session,
+		Fn<void()> done) {
+	const auto id = std::get_if<Data::FileOriginMessage>(&origin.data);
+	if (!id || !*id || !Enabled(Flag::RestoreBackupMedia)) {
+		return false;
+	}
+	const auto item = session->data().message(*id);
+	if (!item || !item->media() || !IsDeleted(item)) {
+		return false;
+	}
+	const auto copy = DbCopyFor(
+		item->history()->peer->id.value,
+		item->id.bare);
+	if (!copy) {
+		return false;
+	}
+	const auto peerId = PeerId(copy->first);
+	const auto msgId = MsgId(copy->second);
+	if (session->data().message(peerId, msgId)) {
+		return false;
+	}
+	const auto peer = session->data().peerLoaded(peerId);
+	// One attempt per copy: if the server does not return it, fall back.
+	static auto tried = std::set<std::pair<uint64, int64>>();
+	if (!peer || !tried.emplace(copy->first, copy->second).second) {
+		return false;
+	}
+	session->api().requestMessageData(peer, msgId, std::move(done));
+	return true;
 }
 
 void RetryMedia(not_null<HistoryItem*> item) {

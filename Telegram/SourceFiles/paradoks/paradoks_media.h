@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "data/data_file_origin.h"
+
 class HistoryItem;
 
 namespace Main {
@@ -38,6 +40,19 @@ void NotifyDeleted(not_null<HistoryItem*> item);
 [[nodiscard]] std::optional<std::pair<uint64, int64>> DbCopyFor(
 	uint64 peer,
 	int64 id);
+// A manual download of the media of a deleted message is taken from the copy
+// in the media database (same file, fresh file reference), silently, like an
+// ordinary download. Anything else is returned unchanged.
+[[nodiscard]] Data::FileOrigin RestoreOrigin(
+	Data::FileOrigin origin,
+	not_null<Main::Session*> session);
+// If the media database copy of a deleted message is not in memory, asks the
+// server for it and calls `done` (true if it was requested). Used before a
+// manual download, so it works right after the app was started.
+[[nodiscard]] bool LoadDbCopyFirst(
+	Data::FileOrigin origin,
+	not_null<Main::Session*> session,
+	Fn<void()> done);
 // Tries again to save the media of a deleted message.
 void RetryMedia(not_null<HistoryItem*> item);
 [[nodiscard]] int64 SavedMediaBytes();

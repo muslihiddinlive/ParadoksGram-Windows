@@ -2,6 +2,10 @@ name: ParadoksGram Windows.
 
 on:
   workflow_dispatch:
+  # Cache-only run: GitHub deletes caches that were not used for 7 days, and a cold Libraries step
+  # (Qt, ffmpeg, ...) takes over an hour. Restoring the caches every 4 days keeps them alive.
+  schedule:
+    - cron: '17 3 */4 * *'
   push:
     branches:
       - dev
@@ -120,7 +124,22 @@ jobs:
             ${{ runner.OS }}-x64-qt-v2-
             ${{ runner.OS }}-x64-qt-
 
+      - name: Cache-only run?
+        id: gate
+        shell: bash
+        run: |
+          # A scheduled run only has to touch the caches (that resets their 7-day expiry).
+          # If any of them is missing, fall through and rebuild/save them as usual.
+          if [ "${{ github.event_name }}" = "schedule" ] \
+            && [ "${{ steps.cache-third-party.outputs.cache-hit }}" = "true" ] \
+            && [ "${{ steps.cache-libs.outputs.cache-hit }}" = "true" ] \
+            && [ "${{ steps.cache-qt.outputs.cache-hit }}" = "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "All caches are warm, nothing to build."
+          fi
+
       - name: Libraries.
+        if: steps.gate.outputs.skip != 'true'
         timeout-minutes: 300
         run: |
           %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat silent > %GITHUB_WORKSPACE%\libraries.log 2>&1
@@ -129,7 +148,7 @@ jobs:
           exit /b %RESULT%
 
       - name: Free up some disk space.
-        if: always()
+        if: always() && steps.gate.outputs.skip != 'true'
         shell: bash
         run: |
           if [ -d "$LibrariesPath" ]; then
@@ -137,14 +156,14 @@ jobs:
           fi
 
       - name: Save ThirdParty cache.
-        if: always() && steps.cache-third-party.outputs.cache-hit != 'true'
+        if: always() && steps.cache-third-party.outputs.cache-hit != 'true' && steps.gate.outputs.skip != 'true'
         uses: actions/cache/save@v6
         with:
           path: ${{ env.TBUILD }}\ThirdParty
           key: ${{ runner.OS }}-x64-third-party-${{ env.CACHE_KEY }}
 
       - name: Save Libraries cache.
-        if: always() && steps.cache-libs.outputs.cache-hit != 'true'
+        if: always() && steps.cache-libs.outputs.cache-hit != 'true' && steps.gate.outputs.skip != 'true'
         uses: actions/cache/save@v6
         with:
           path: |
@@ -156,7 +175,7 @@ jobs:
           key: ${{ runner.OS }}-x64-libs-v4-${{ env.CACHE_KEY }}
 
       - name: Save Qt cache.
-        if: always() && steps.cache-qt.outputs.cache-hit != 'true'
+        if: always() && steps.cache-qt.outputs.cache-hit != 'true' && steps.gate.outputs.skip != 'true'
         uses: actions/cache/save@v6
         with:
           path: |
@@ -165,6 +184,7 @@ jobs:
           key: ${{ runner.OS }}-x64-qt-v2-${{ env.CACHE_KEY }}
 
       - name: Choose API credentials.
+        if: steps.gate.outputs.skip != 'true'
         shell: bash
         env:
           API_ID: ${{ secrets.TDESKTOP_API_ID }}
@@ -178,6 +198,7 @@ jobs:
           fi
 
       - name: Ads server address.
+        if: steps.gate.outputs.skip != 'true'
         shell: bash
         env:
           ADS_SERVER_URL: ${{ vars.ADS_SERVER_URL || secrets.ADS_SERVER_URL }}
@@ -192,11 +213,13 @@ jobs:
           fi
 
       - name: Build output on D drive.
+        if: steps.gate.outputs.skip != 'true'
         run: |
           mkdir D:\out
           mklink /d %TBUILD%\%REPO_NAME%\out D:\out
 
       - name: ParadoksGram configure.
+        if: steps.gate.outputs.skip != 'true'
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
 
@@ -212,6 +235,7 @@ jobs:
           exit /b %RESULT%
 
       - name: Disk watchdog.
+        if: steps.gate.outputs.skip != 'true'
         shell: pwsh
         run: |
           $script = @'
@@ -234,6 +258,7 @@ jobs:
           Start-Process pwsh -WindowStyle Hidden -ArgumentList '-NoProfile','-File',"$env:GITHUB_WORKSPACE\watch.ps1"
 
       - name: ParadoksGram build.
+        if: steps.gate.outputs.skip != 'true'
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
           cmake --build ..\out --config Release --parallel 1 -- /p:CL_MPCount=4 > %GITHUB_WORKSPACE%\build.log 2>&1
@@ -242,7 +267,7 @@ jobs:
           exit /b %RESULT%
 
       - name: Report errors.
-        if: failure()
+        if: failure() && steps.gate.outputs.skip != 'true'
         shell: bash
         run: |
           set +e +o pipefail
@@ -261,6 +286,7 @@ jobs:
           exit 0
 
       - name: Sign Telegram.exe (only when a certificate secret is set).
+        if: steps.gate.outputs.skip != 'true'
         shell: bash
         env:
           WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX }}
@@ -277,6 +303,7 @@ jobs:
           rm -f "$RUNNER_TEMP/cert.pfx"
 
       - name: Package.
+        if: steps.gate.outputs.skip != 'true'
         shell: bash
         run: |
           mkdir artifact
@@ -298,6 +325,7 @@ jobs:
           fi
 
       - name: Installer.
+        if: steps.gate.outputs.skip != 'true'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -315,6 +343,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
 
       - name: Sign installer (only when a certificate secret is set).
+        if: steps.gate.outputs.skip != 'true'
         continue-on-error: true
         shell: bash
         env:
@@ -331,12 +360,14 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         name: Upload artifact.
+        if: steps.gate.outputs.skip != 'true'
         with:
           name: ParadoksGram-Windows-x64
           path: ParadoksGram-Windows-x64.zip
           retention-days: 30
 
       - name: Publish release.
+        if: steps.gate.outputs.skip != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -365,7 +396,7 @@ jobs:
             --notes "Build ${{ github.run_number }}, commit ${GITHUB_SHA::7}"
 
       - name: Notify Telegram.
-        if: always()
+        if: always() && steps.gate.outputs.skip != 'true'
         shell: bash
         env:
           BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
