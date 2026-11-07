@@ -2864,6 +2864,7 @@ if (MSVC)
     target_link_libraries(Telegram
     PRIVATE
         delayimp
+        dnsapi
     )
     target_link_options(Telegram
     PRIVATE
