@@ -14,6 +14,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_config.h"
 #include "ui/painter.h"
 #include <QtGui/QPainterPath>
+#include <algorithm>
+#include <cmath>
 #include "styles/style_chat.h"
 #include "styles/style_chat_style.h"
 
@@ -351,8 +353,81 @@ void FinishBubblePatternOnMain(not_null<BubblePattern*> pattern) {
 namespace {
 
 // ParadoksGram: liquid glass look of outgoing bubbles.
-void PaintGlassOverlay(QPainter &p, const SimpleBubble &args, int level) {
-	const auto rect = QRectF(args.geometry);
+// Blurred and lens-displaced copy of a known backdrop (used by the settings preview).
+[[nodiscard]] QImage RefractBackdrop(
+		const QImage &wall,
+		QPoint wallTopLeft,
+		const QRect &rect) {
+	constexpr auto kMargin = 28;
+	const auto local = rect.translated(-wallTopLeft);
+	const auto src = local.adjusted(
+		-kMargin,
+		-kMargin,
+		kMargin,
+		kMargin).intersected(wall.rect());
+	if (src.isEmpty() || rect.width() < 8 || rect.height() < 8) {
+		return QImage();
+	}
+	auto crop = wall.copy(src).convertToFormat(QImage::Format_RGB32);
+	const auto small = crop.scaled(
+		std::max(2, crop.width() / 5),
+		std::max(2, crop.height() / 5),
+		Qt::IgnoreAspectRatio,
+		Qt::SmoothTransformation);
+	crop = small.scaled(
+		crop.size(),
+		Qt::IgnoreAspectRatio,
+		Qt::SmoothTransformation).convertToFormat(QImage::Format_RGB32);
+	const auto w = rect.width();
+	const auto h = rect.height();
+	auto result = QImage(rect.size(), QImage::Format_RGB32);
+	const auto origin = local.topLeft() - src.topLeft();
+	const auto radius = double(std::min(26, std::min(w, h) / 2));
+	const auto cx = (w - 1) / 2.;
+	const auto cy = (h - 1) / 2.;
+	const auto sample = [&](double sx, double sy) {
+		const auto x = std::clamp(int(sx), 0, crop.width() - 1);
+		const auto y = std::clamp(int(sy), 0, crop.height() - 1);
+		return crop.pixel(x, y);
+	};
+	for (auto y = 0; y != h; ++y) {
+		auto line = reinterpret_cast<QRgb*>(result.scanLine(y));
+		for (auto x = 0; x != w; ++x) {
+			const auto edge = double(std::min(
+				std::min(x, y),
+				std::min(w - 1 - x, h - 1 - y)));
+			const auto rim = std::clamp(1. - edge / radius, 0., 1.);
+			const auto bend = rim * rim * 16.;
+			const auto dx = x - cx;
+			const auto dy = y - cy;
+			const auto length = std::max(1., std::hypot(dx, dy));
+			const auto sx = origin.x() + x + dx / length * bend;
+			const auto sy = origin.y() + y + dy / length * bend;
+			const auto fringe = rim * 3.;
+			const auto first = sample(sx + fringe, sy);
+			const auto second = sample(sx, sy);
+			const auto third = sample(sx - fringe, sy);
+			const auto red = qRed(first);
+			const auto green = qGreen(second);
+			const auto blue = qBlue(third);
+			const auto avg = (red + green + blue) / 3;
+			const auto boost = [&](int value) {
+				return std::clamp(avg + (value - avg) * 3 / 2, 0, 255);
+			};
+			*line++ = qRgb(boost(red), boost(green), boost(blue));
+		}
+	}
+	return result;
+}
+
+void PaintGlassOverlay(
+		QPainter &p,
+		const QRect &geometry,
+		BubbleRounding rounding,
+		int level,
+		const QImage &backdrop,
+		QPoint backdropTopLeft) {
+	const auto rect = QRectF(geometry);
 	if (rect.width() < 8 || rect.height() < 8) {
 		return;
 	}
@@ -365,10 +440,10 @@ void PaintGlassOverlay(QPainter &p, const SimpleBubble &args, int level) {
 			? small
 			: 0.;
 	};
-	const auto tl = radius(args.rounding.topLeft);
-	const auto tr = radius(args.rounding.topRight);
-	const auto br = radius(args.rounding.bottomRight);
-	const auto bl = radius(args.rounding.bottomLeft);
+	const auto tl = radius(rounding.topLeft);
+	const auto tr = radius(rounding.topRight);
+	const auto br = radius(rounding.bottomRight);
+	const auto bl = radius(rounding.bottomLeft);
 	auto path = QPainterPath();
 	path.moveTo(rect.left() + tl, rect.top());
 	path.lineTo(rect.right() - tr, rect.top());
@@ -396,6 +471,15 @@ void PaintGlassOverlay(QPainter &p, const SimpleBubble &args, int level) {
 	path.closeSubpath();
 
 	const auto hq = PainterHighQualityEnabler(p);
+	const auto refracted = (!backdrop.isNull() && Paradoks::GlassRefract())
+		? RefractBackdrop(backdrop, backdropTopLeft, geometry)
+		: QImage();
+	if (!refracted.isNull()) {
+		p.save();
+		p.setClipPath(path);
+		p.drawImage(geometry.topLeft(), refracted);
+		p.restore();
+	}
 	static const QColor tints[] = {
 		QColor(255, 255, 255),
 		QColor(90, 167, 255),
@@ -423,8 +507,8 @@ void PaintGlassOverlay(QPainter &p, const SimpleBubble &args, int level) {
 		? 1.
 		: 1.4;
 	if (strength > 0.
-		&& (args.rounding.topLeft != Corner::None
-			|| args.rounding.topRight != Corner::None)) {
+		&& (rounding.topLeft != Corner::None
+			|| rounding.topRight != Corner::None)) {
 		auto sheen = QLinearGradient(
 			rect.topLeft(),
 			QPointF(rect.left(), rect.top() + rect.height() * 0.55));
@@ -435,7 +519,7 @@ void PaintGlassOverlay(QPainter &p, const SimpleBubble &args, int level) {
 		p.drawPath(path);
 	}
 	p.setBrush(Qt::NoBrush);
-	if (Paradoks::GlassRefract()) {
+	if (Paradoks::GlassRefract() && refracted.isNull()) {
 		// Imitation of light bending at the rim: coloured fringes.
 		p.save();
 		p.translate(-0.8, -0.8);
@@ -448,6 +532,18 @@ void PaintGlassOverlay(QPainter &p, const SimpleBubble &args, int level) {
 		p.drawPath(path);
 		p.restore();
 	}
+	if (Paradoks::GlassRefract()) {
+		// Caustic glow along the bottom rim.
+		auto caustic = QLinearGradient(
+			QPointF(rect.left(), rect.bottom()),
+			QPointF(rect.left(), rect.bottom() - rect.height() * 0.4));
+		caustic.setColorAt(0., QColor(130, 225, 255, 60));
+		caustic.setColorAt(1., QColor(255, 140, 190, 0));
+		p.setPen(Qt::NoPen);
+		p.setBrush(caustic);
+		p.drawPath(path);
+		p.setBrush(Qt::NoBrush);
+	}
 	if (strength > 0.) {
 		p.setPen(QPen(QColor(255, 255, 255, std::min(255, int(110 * strength))), 1.));
 		p.drawPath(path);
@@ -456,10 +552,20 @@ void PaintGlassOverlay(QPainter &p, const SimpleBubble &args, int level) {
 
 } // namespace
 
+void PaintGlassBubble(
+		QPainter &p,
+		const QRect &geometry,
+		BubbleRounding rounding,
+		int level,
+		const QImage &backdrop,
+		QPoint backdropTopLeft) {
+	PaintGlassOverlay(p, geometry, rounding, level, backdrop, backdropTopLeft);
+}
+
 void PaintBubble(QPainter &p, const SimpleBubble &args) {
 	if (args.outbg || Paradoks::GlassIncoming()) {
 		if (const auto glass = Paradoks::GlassBubbleLevel()) {
-			PaintGlassOverlay(p, args, glass);
+			PaintGlassOverlay(p, args.geometry, args.rounding, glass, QImage(), QPoint());
 			return;
 		}
 	}

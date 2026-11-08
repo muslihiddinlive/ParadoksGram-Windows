@@ -129,6 +129,15 @@ struct BubbleWithGaps {
 	not_null<TornEdgeCache*> torn;
 };
 
+// ParadoksGram: glass bubble with an optional known backdrop (settings preview).
+void PaintGlassBubble(
+	QPainter &p,
+	const QRect &geometry,
+	BubbleRounding rounding,
+	int level,
+	const QImage &backdrop = QImage(),
+	QPoint backdropTopLeft = QPoint());
+
 void PaintBubble(QPainter &p, const SimpleBubble &args);
 void PaintBubble(QPainter &p, const ComplexBubble &args);
 void PaintBubble(QPainter &p, const BubbleWithGaps &args);

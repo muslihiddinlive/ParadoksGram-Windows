@@ -50,6 +50,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/layers/show.h"
 #include "settings/settings_common.h"
 #include "ui/painter.h"
+#include "ui/chat/message_bubble.h"
 #include "ui/vertical_list.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/widgets/buttons.h"
@@ -122,6 +123,123 @@ SearchRegistry *CurrentSearch = nullptr;
 
 void AddGap(not_null<Ui::VerticalLayout*> container) {
 	Ui::AddSkip(AddChrome(container));
+}
+
+constexpr auto kGlassPreviewHeight = 400;
+
+// Colourful wallpaper for the glass preview (so blur and refraction are visible).
+[[nodiscard]] QImage GlassPreviewWall(QSize size) {
+	auto result = QImage(size, QImage::Format_RGB32);
+	auto p = QPainter(&result);
+	p.setRenderHint(QPainter::Antialiasing);
+	auto base = QLinearGradient(QPointF(0, 0), QPointF(size.width(), size.height()));
+	base.setColorAt(0., QColor(24, 34, 84));
+	base.setColorAt(1., QColor(86, 30, 98));
+	p.fillRect(QRect(QPoint(), size), base);
+	struct Blob {
+		double x, y, r;
+		QColor color;
+	};
+	const auto w = double(size.width());
+	const auto h = double(size.height());
+	const Blob blobs[] = {
+		{ 0.15, 0.20, 0.34, QColor(255, 140, 60) },
+		{ 0.85, 0.18, 0.30, QColor(40, 210, 255) },
+		{ 0.30, 0.55, 0.28, QColor(255, 70, 160) },
+		{ 0.80, 0.52, 0.34, QColor(80, 240, 150) },
+		{ 0.20, 0.88, 0.30, QColor(255, 220, 70) },
+		{ 0.75, 0.90, 0.28, QColor(150, 110, 255) },
+	};
+	p.setPen(Qt::NoPen);
+	for (const auto &blob : blobs) {
+		const auto center = QPointF(blob.x * w, blob.y * h);
+		const auto radius = blob.r * std::max(w, h) * 0.6;
+		auto gradient = QRadialGradient(center, radius);
+		auto inner = blob.color;
+		inner.setAlpha(210);
+		auto outer = blob.color;
+		outer.setAlpha(0);
+		gradient.setColorAt(0., inner);
+		gradient.setColorAt(1., outer);
+		p.setBrush(gradient);
+		p.drawEllipse(center, radius, radius);
+	}
+	p.end();
+	return result;
+}
+
+void PaintGlassPreview(QPainter &p, QSize size) {
+	if (size.width() < 40 || size.height() < 40) {
+		return;
+	}
+	const auto wall = GlassPreviewWall(size);
+	p.drawImage(0, 0, wall);
+	const auto width = size.width();
+	// Header of the mock chat.
+	p.fillRect(QRect(0, 0, width, 44), QColor(10, 14, 30, 150));
+	p.setPen(Qt::white);
+	p.setFont(st::semiboldFont);
+	p.drawText(QRect(14, 4, width - 28, 20), Qt::AlignLeft | Qt::AlignVCenter, u"ParadoksGram"_q);
+	p.setPen(QColor(200, 215, 255));
+	p.setFont(st::normalFont);
+	p.drawText(QRect(14, 23, width - 28, 18), Qt::AlignLeft | Qt::AlignVCenter, u"Muslihiddin yozmoqda..."_q);
+
+	struct Message {
+		bool out;
+		QString name;
+		QString text;
+	};
+	const Message messages[] = {
+		{ false, u"Aziz"_q, u"Muslihiddin, ParadoksGram'da yangi liquid glass chiqibdi, ko'rdingmi?"_q },
+		{ true, QString(), u"Ha! Xabarlarning orqa foni haqiqiy shishaga o'xshab qoldi"_q },
+		{ true, QString(), u"Shaffofligi, chekkadagi yorug'lik va sinish effekti juda zo'r chiqdi"_q },
+		{ false, u"Aziz"_q, u"Rostdan ham! Fon rang-barang bo'lsa yanayam chiroyli ko'rinadi"_q },
+		{ true, QString(), u"Sozlamalarni o'zgartirib ko'ring, natija shu yerning o'zida ko'rinadi"_q },
+	};
+	const auto level = GlassBubbleLevel();
+	const auto incomingGlass = GlassIncoming();
+	const auto font = st::normalFont->f;
+	const auto metrics = QFontMetrics(font);
+	const auto maxText = int(width * 0.72) - 24;
+	auto y = 54;
+	for (const auto &message : messages) {
+		const auto text = metrics.boundingRect(
+			QRect(0, 0, maxText, 10000),
+			Qt::TextWordWrap,
+			message.text);
+		const auto nameHeight = message.name.isEmpty() ? 0 : 16;
+		const auto bubbleWidth = std::max(text.width(), message.name.isEmpty() ? 0 : metrics.horizontalAdvance(message.name)) + 24;
+		const auto bubbleHeight = text.height() + nameHeight + 16;
+		const auto x = message.out ? (width - 10 - bubbleWidth) : 10;
+		const auto geometry = QRect(x, y, bubbleWidth, bubbleHeight);
+		const auto glass = level > 0 && (message.out || incomingGlass);
+		if (glass) {
+			auto rounding = Ui::BubbleRounding();
+			rounding.topLeft = rounding.topRight = Ui::BubbleCornerRounding::Large;
+			rounding.bottomLeft = message.out
+				? Ui::BubbleCornerRounding::Large
+				: Ui::BubbleCornerRounding::Small;
+			rounding.bottomRight = message.out
+				? Ui::BubbleCornerRounding::Small
+				: Ui::BubbleCornerRounding::Large;
+			Ui::PaintGlassBubble(p, geometry, rounding, level, wall, QPoint());
+		} else {
+			p.setPen(Qt::NoPen);
+			p.setBrush(message.out ? QColor(43, 108, 176) : QColor(43, 58, 82));
+			p.drawRoundedRect(QRectF(geometry), 14., 14.);
+		}
+		auto top = y + 8;
+		if (!message.name.isEmpty()) {
+			p.setPen(QColor(150, 210, 255));
+			p.setFont(st::semiboldFont);
+			p.drawText(QRect(x + 12, top, bubbleWidth - 24, 16), Qt::AlignLeft | Qt::AlignVCenter, message.name);
+			top += nameHeight;
+		}
+		p.setPen(Qt::white);
+		p.setFont(st::normalFont);
+		p.drawText(QRect(x + 12, top, bubbleWidth - 24, text.height() + 2), Qt::AlignLeft | Qt::TextWordWrap, message.text);
+		y += bubbleHeight + 8;
+	}
 }
 
 not_null<Settings::Button*> AddRow(
@@ -1320,6 +1438,17 @@ void SettingsBox(
 				: u"o'chiq"_q)
 			+ ')';
 	};
+	const auto glassPreview = box->verticalLayout()->add(
+		object_ptr<Ui::RpWidget>(box),
+		style::margins(st::boxRowPadding.left(), 6, st::boxRowPadding.right(), 8));
+	glassPreview->resize(glassPreview->width(), kGlassPreviewHeight);
+	glassPreview->paintRequest(
+	) | rpl::on_next([=] {
+		auto p = QPainter(glassPreview);
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setClipRect(glassPreview->rect());
+		PaintGlassPreview(p, glassPreview->size());
+	}, glassPreview->lifetime());
 	const auto glassLabel = box->lifetime().make_state<
 		rpl::variable<QString>>(glassTitle());
 	const auto glassButton = AddRow(box, glassLabel->value(), &st::menuIconPalette);
@@ -1337,6 +1466,7 @@ void SettingsBox(
 			.callback = Fn<void(int)>([=](int value) {
 				SetGlassBubbleLevel(value);
 				*glassLabel = glassTitle();
+				glassPreview->update();
 			}),
 		}));
 	});
@@ -1362,6 +1492,7 @@ void SettingsBox(
 			.callback = Fn<void(int)>([=](int value) {
 				SetGlassTint(value);
 				*tintLabel = tintTitle();
+				glassPreview->update();
 			}),
 		}));
 	});
@@ -1385,6 +1516,7 @@ void SettingsBox(
 			.callback = Fn<void(int)>([=](int value) {
 				SetGlassEdge(value);
 				*edgeLabel = edgeTitle();
+				glassPreview->update();
 			}),
 		}));
 	});
@@ -1398,6 +1530,7 @@ void SettingsBox(
 	incomingButton->setClickedCallback([=] {
 		SetGlassIncoming(!GlassIncoming());
 		*incomingLabel = incomingTitle();
+		glassPreview->update();
 	});
 	const auto refractTitle = [] {
 		return u"Sinish effekti (chekkada rangli nur): "_q
@@ -1409,12 +1542,15 @@ void SettingsBox(
 	refractButton->setClickedCallback([=] {
 		SetGlassRefract(!GlassRefract());
 		*refractLabel = refractTitle();
+		glassPreview->update();
 	});
 	AddText(
 		box,
 		u"Yuborgan xabarlaringizning orqa foni shishaday yarim shaffof "
-		"bo'ladi. \"Kuchli\" eng shaffof. Haqiqiy xiralashtirish yo'q: "
-		"chat foni rasmli yoki rangli bo'lsa chiroyliroq ko'rinadi."_q);
+		"bo'ladi. \"Kuchli\" eng shaffof. Yuqoridagi sinov maydonida "
+		"sozlamalar darhol ko'rinadi. Sinov maydonida sinish effekti "
+		"haqiqiy xiralashtirish bilan chiziladi, chatda esa unga o'xshash "
+		"imitatsiya: chat foni rasmli yoki rangli bo'lsa chiroyliroq ko'rinadi."_q);
 	AddToggle(
 		box,
 		Flag::FinishDownloads,
