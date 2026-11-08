@@ -25,10 +25,6 @@ permissions:
 # A running build is never cancelled by a newer push (a build is long and used to be thrown away
 # again and again). While one runs, GitHub keeps only the newest waiting run, so pushes made
 # during a build are merged into one following build.
-concurrency:
-  group: paradoks-win
-  cancel-in-progress: false
-
 jobs:
 
   # Pushes often come in bursts. Wait a few minutes and only build the commit that is still the
@@ -57,6 +53,11 @@ jobs:
   windows:
     name: Windows x64
     needs: settle
+    concurrency:
+      group: paradoks-win
+      cancel-in-progress: false
+    outputs:
+      skip: ${{ steps.gate.outputs.skip }}
     if: ${{ !cancelled() && (needs.settle.result == 'skipped' || needs.settle.outputs.current == 'true') }}
     runs-on: windows-latest
     timeout-minutes: 350
@@ -392,28 +393,81 @@ jobs:
           "$signtool" sign //f "$(cygpath -w "$RUNNER_TEMP/cert.pfx")" //p "$WIN_CERT_PASSWORD" //fd sha256 //tr http://timestamp.digicert.com //td sha256 "$(cygpath -w "$exe")"
           rm -f "$RUNNER_TEMP/cert.pfx"
 
-      - name: Package.
+      - name: Collect the exe for packaging.
         if: steps.gate.outputs.skip != 'true'
         shell: bash
         run: |
-          mkdir artifact
+          mkdir pkg
           exe=$(find /d/out -maxdepth 3 -name Telegram.exe | head -n 1)
           echo "Using $exe"
-          cp "$exe" artifact/
-          cd artifact
+          cp "$exe" pkg/
           map=$(find /d/out -maxdepth 4 -name "Telegram.map" | head -n 1)
+          if [ -n "$map" ]; then cp "$map" pkg/; else echo "No Telegram.map found under /d/out"; fi
+
+      - uses: actions/upload-artifact@v7
+        name: Hand the exe to the packaging job.
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          name: exe-${{ github.run_number }}
+          path: pkg
+          retention-days: 1
+          compression-level: 1
+
+      - name: Notify Telegram about a failed build.
+        if: failure() && steps.gate.outputs.skip != 'true'
+        shell: bash
+        env:
+          BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then exit 0; fi
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          text=$(printf 'ParadoksGram Windows #%s: failure\nCommit %s\n%s' "$GITHUB_RUN_NUMBER" "${GITHUB_SHA::7}" "$run_url")
+          curl -sS -o /dev/null "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -d chat_id="$CHAT_ID" --data-urlencode text="$text" || true
+
+
+  # Compressing, the installer and the release do not need the build machine or its queue, so they
+  # run on a separate runner while the next build can already start.
+  package:
+    name: Package and publish
+    needs: windows
+    if: ${{ needs.windows.result == 'success' && needs.windows.outputs.skip != 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    concurrency:
+      group: paradoks-win-package
+      cancel-in-progress: false
+
+    steps:
+      - name: Clone.
+        uses: actions/checkout@v7
+        with:
+          path: src
+
+      - name: Get the exe.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" -n "exe-${{ github.run_number }}" -D pkg
+
+      - name: Package.
+        shell: bash
+        run: |
+          mkdir artifact
+          mv pkg/Telegram.exe artifact/
+          cd artifact
+          map=$(ls ../pkg/Telegram.map 2>/dev/null | head -n 1)
           7z a -tzip -mx=9 -mfb=258 ../ParadoksGram-Windows-x64.zip Telegram.exe &
           7z a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=on -mmt=2 ../ParadoksGram-Windows-x64.7z Telegram.exe &
           if [ -n "$map" ]; then
             7z a -t7z -m0=lzma2 -mx=5 -md=64m -mmt=1 ../ParadoksGram-Symbols.7z "$map" &
           else
-            echo "No Telegram.map found under /d/out"
+            echo "No Telegram.map in the build output"
           fi
           wait
           ls -l ../ParadoksGram-Windows-x64.* ../ParadoksGram-Symbols.7z || true
 
       - name: Installer.
-        if: steps.gate.outputs.skip != 'true'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -421,7 +475,7 @@ jobs:
           if (-not (Test-Path $iscc)) {
             choco install innosetup -y --no-progress
           }
-          $repo = Join-Path $env:TBUILD $env:REPO_NAME
+          $repo = Join-Path $env:GITHUB_WORKSPACE "src"
           & $iscc `
             "/DBuild=${{ github.run_number }}" `
             "/DSourceExe=$env:GITHUB_WORKSPACE\artifact\Telegram.exe" `
@@ -431,7 +485,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
 
       - name: Sign installer (only when a certificate secret is set).
-        if: steps.gate.outputs.skip != 'true'
         continue-on-error: true
         shell: bash
         env:
@@ -448,14 +501,12 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         name: Upload artifact.
-        if: steps.gate.outputs.skip != 'true'
         with:
           name: ParadoksGram-Windows-x64
           path: ParadoksGram-Windows-x64.zip
           retention-days: 30
 
       - name: Publish release.
-        if: steps.gate.outputs.skip != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -463,7 +514,7 @@ jobs:
           files=(ParadoksGram-Windows-x64.zip)
           if [ -f ParadoksGram-Windows-x64.7z ]; then files+=(ParadoksGram-Windows-x64.7z); fi
           if [ -f ParadoksGram-Setup.exe ]; then files+=(ParadoksGram-Setup.exe); fi
-          SRC="$TBUILD/$REPO_NAME"
+          SRC="$GITHUB_WORKSPACE/src"
           SYMS=""
           if [ -f ParadoksGram-Symbols.7z ]; then SYMS=ParadoksGram-Symbols.7z; fi
           VER=$(tr -d '[:space:]' < "$SRC/VERSION")
@@ -484,7 +535,7 @@ jobs:
             --notes "Build ${{ github.run_number }}, commit ${GITHUB_SHA::7}"
 
       - name: Notify Telegram.
-        if: always() && steps.gate.outputs.skip != 'true'
+        if: always()
         shell: bash
         env:
           BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
