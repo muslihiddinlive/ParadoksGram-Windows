@@ -47,7 +47,7 @@ constexpr auto kFlags = std::array<FlagInfo, kCount>{ {
 	{ "track_edits", true },
 	{ "hide_sponsored", true },
 	{ "notify_deleted", false },
-	{ "pre_save_media", true },
+	{ "pre_save_media", false },
 	{ "restore_backup_media", true },
 	{ "record_streams", false },
 	{ "own_ads", true },
