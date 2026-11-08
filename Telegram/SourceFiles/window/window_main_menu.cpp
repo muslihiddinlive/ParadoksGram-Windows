@@ -9,7 +9,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/timer.h"
 #include "rpl/variable.h"
-#include "paradoks/paradoks_ai.h"
 #include "paradoks/paradoks_broadcast.h"
 #include "paradoks/paradoks_counters.h"
 #include "paradoks/paradoks_invite.h"
@@ -729,16 +728,6 @@ void MainMenu::setupMenu() {
 				{ &st::menuIconStats })
 		)->setClickedCallback([=] {
 			Paradoks::Counters::Open(controller);
-		});
-
-		_menu->add(
-			CreateButtonWithIcon(
-				_menu,
-				rpl::single(u"Paradoks AI"_q),
-				st::mainMenuButton,
-				{ &st::menuIconBot })
-		)->setClickedCallback([=] {
-			Paradoks::Ai::Open(controller);
 		});
 
 		SetupMenuBots(_menu, controller);

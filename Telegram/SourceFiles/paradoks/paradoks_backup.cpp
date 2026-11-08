@@ -7,7 +7,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "paradoks/paradoks_backup.h"
 
-#include "paradoks/paradoks_agent.h"
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_update.h"
 #include "core/file_utilities.h"
@@ -56,7 +55,6 @@ constexpr IntKey kInts[] = {
 		const auto key = QString::fromLatin1(item.key);
 		prefs.insert(key, IntSetting(key, item.byDefault));
 	}
-	prefs.insert(u"ai_server"_q, Agent::ServerUrl());
 	return QJsonObject{
 		{ u"app"_q, QString::fromLatin1(kApp) },
 		{ u"kind"_q, QString::fromLatin1(kKind) },
@@ -98,13 +96,6 @@ constexpr IntKey kInts[] = {
 				SetIntSetting(key, value.toInt());
 				++applied;
 			}
-		}
-		const auto server = prefs.value(u"ai_server"_q);
-		if (server.isString()
-			&& (server.toString().isEmpty()
-				|| server.toString().startsWith(u"https://"_q))) {
-			Agent::SetServerUrl(server.toString());
-			++applied;
 		}
 	}
 	skipped = std::max<int>(0, int(prefs.size()) - applied);

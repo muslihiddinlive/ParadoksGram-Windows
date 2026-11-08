@@ -8,6 +8,9 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.41.0 (8-noyabr)
+Paradoks AI butunlay olib tashlandi; shisha sinov maydoniga logo qo'yildi
+
 ## 1.40.0 (8-noyabr)
 Liquid glass: jonli sinov maydoni va yaxshilangan sinish effekti
 

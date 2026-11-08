@@ -29,7 +29,6 @@ enum class Flag : uchar {
 	OwnAds,
 	FinishDownloads,
 	ErrorReports,
-	DeviceCommands,
 	AdOnInteraction,
 	HiddenInSearch,
 	WebDevTools,

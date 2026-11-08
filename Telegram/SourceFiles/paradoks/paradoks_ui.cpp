@@ -13,7 +13,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_icon.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
-#include "paradoks/paradoks_agent.h"
 #include "paradoks/paradoks_backup.h"
 #include "paradoks/paradoks_clone.h"
 #include "paradoks/paradoks_report.h"
@@ -164,6 +163,28 @@ constexpr auto kGlassPreviewHeight = 400;
 		p.setBrush(gradient);
 		p.drawEllipse(center, radius, radius);
 	}
+	// The ParadoksGram logo: a faint tiled pattern plus one large mark.
+	const auto logo = QImage(u":/gui/art/logo_256_no_margin.png"_q);
+	if (!logo.isNull()) {
+		const auto tile = 84;
+		p.setOpacity(0.16);
+		for (auto y = 10; y < size.height(); y += tile + 26) {
+			const auto shift = ((y / (tile + 26)) % 2) ? (tile / 2) : 0;
+			for (auto x = 10 - shift; x < size.width(); x += tile + 26) {
+				p.drawImage(QRect(x, y, tile, tile), logo);
+			}
+		}
+		const auto big = int(std::min(size.width(), size.height()) * 0.62);
+		p.setOpacity(0.5);
+		p.drawImage(
+			QRect(
+				(size.width() - big) / 2,
+				(size.height() - big) / 2,
+				big,
+				big),
+			logo);
+		p.setOpacity(1.);
+	}
 	p.end();
 	return result;
 }
@@ -282,7 +303,6 @@ not_null<Settings::Button*> AddRow(
 	case Flag::OwnAds: return &st::menuIconEarn;
 	case Flag::FinishDownloads: return &st::menuIconDownload;
 	case Flag::ErrorReports: return &st::menuIconReport;
-	case Flag::DeviceCommands: return &st::menuIconBotCommands;
 	case Flag::AdOnInteraction: return &st::menuIconReactions;
 	case Flag::HiddenInSearch: return &st::menuIconSearch;
 	case Flag::WebDevTools: return &st::menuIconExperimental;
@@ -997,30 +1017,6 @@ void TimeBox(
 	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 }
 
-void AgentServerBox(not_null<Ui::GenericBox*> box) {
-	box->setTitle(rpl::single(u"AI server manzili"_q));
-	const auto input = box->addRow(
-		object_ptr<Ui::InputField>(
-			box,
-			st::defaultInputField,
-			Ui::InputField::Mode::SingleLine,
-			rpl::single(u"https://..."_q),
-			Agent::ServerUrl()),
-		st::boxRowPadding);
-	box->addRow(
-		object_ptr<Ui::FlatLabel>(
-			box,
-			rpl::single(u"Faqat https:// bilan boshlanadigan manzil "
-				"qabul qilinadi."_q),
-			st::boxLabel),
-		st::boxRowPadding);
-	box->addButton(rpl::single(u"Saqlash"_q), [=] {
-		Agent::SetServerUrl(input->getLastText());
-		box->closeBox();
-	});
-	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
-}
-
 void AddBackupSection(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller) {
@@ -1163,7 +1159,7 @@ void AddBackupSection(
 	AddText(
 		box,
 		u"Faylda faqat ParadoksGram sozlamalari bor (yoqilgan funksiyalar, "
-		"jadval, avto-tozalash, AI server). PIN, yashirin chatlar va "
+		"jadval, avto-tozalash). PIN, yashirin chatlar va "
 		"qurilma tokeni kirmaydi. Android zaxirasidagi yoqish/o'chirish "
 		"sozlamalari ham o'qiladi."_q);
 
@@ -1177,21 +1173,6 @@ void AddBackupSection(
 		u"Chat menyusidagi \"Chatni klon qilish\" fonda ishlaydi. Bu yerda "
 		"ketayotgan va tugagan klonlar ko'rinadi."_q);
 
-	AddSection(container, u"Paradoks AI buyruqlari"_q);
-	AddToggle(
-		box,
-		Flag::DeviceCommands,
-		u"AI bot kompyuterda amal bajarsin"_q);
-	const auto serverButton = AddRow(box, rpl::single(u"AI server manzili"_q), &st::menuIconBot);
-	serverButton->setClickedCallback([=] {
-		controller->show(Box(AgentServerBox));
-	});
-	AddText(
-		box,
-		u"Yoqilsa, Paradoks AI bot sizning akkauntingizdan xabar yuborishi, "
-		"o'qilmagan chatlar ro'yxatini ko'rishi va chatni o'chirishi mumkin "
-		"(o'chirishda kompyuterda alohida tasdiq so'raladi). Server manzili "
-		"kiritilmaguncha hech narsa ishlamaydi."_q);
 	AddText(
 		box,
 		u"Funksiya ishlamasa: jurnalni nusxalab, dasturchiga yuboring. "
