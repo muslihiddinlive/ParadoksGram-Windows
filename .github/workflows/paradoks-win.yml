@@ -70,6 +70,22 @@ jobs:
         shell: cmd
 
     steps:
+      - name: Notify Telegram that the build started.
+        if: github.event_name != 'schedule'
+        shell: bash
+        continue-on-error: true
+        env:
+          NAME: ParadoksGram Windows
+          BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then exit 0; fi
+          title=$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          text=$(printf '🔨 %s #%s: build boshlandi\nCommit %s %s\n%s' "$NAME" "$GITHUB_RUN_NUMBER" "${GITHUB_SHA::7}" "$title" "$run_url")
+          curl -sS -o /dev/null "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -d chat_id="$CHAT_ID" --data-urlencode text="$text" || true
+
       # The runner commits only ~19 GB, which the compiler exhausts (C1060).
       - name: Bigger pagefile on D.
         uses: al-cheb/configure-pagefile-action@a3b6ebd6b634da88790d9c58d4b37a7f4a7b8708 # v1.4
