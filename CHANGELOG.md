@@ -8,6 +8,22 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.41.0 (8-noyabr)
+Liquid glass: yangi sinov maydoni va premium boshqaruv
+Liquid glass sozlamalari yangilandi
+
+Yangi:
+- Sinov maydonining fonida endi bizning logo (arvoh) turadi: shisha xabarlar uning ustida yorug'lik va sinish bilan ko'rinadi.
+- Sozlamalar sinov maydonining pastida: chatdagidek yozuv paneli va sarlavhada logo bilan avatar.
+- Shaffoflik darajasi va chekka yorug'ligi endi oyna ochmasdan, sirpanuvchi tanlov tugmalari bilan almashadi.
+- Shisha rangi yumaloq rang namunalari bilan tanlanadi, tanlov halqasi silliq ko'chadi.
+- Kelgan xabarlar va sinish effekti oddiy almashtirgich (toggle) bilan yoqiladi.
+
+Tuzatildi:
+- Sinov maydoni sekin ishlardi: har bir yangilanishda fon va sinish effekti qayta hisoblanardi. Endi rasm bir marta chiziladi va saqlanadi.
+- Sinov maydoni balandligi ekran kengligiga moslanadi, xabarlar qirqilib qolmaydi. Yuqori aniqlikdagi ekranlarda tiniq chiziladi.
+- Qidiruv ishlaganda sinov maydoni yashirinadi, sozlamalar esa qidiruvdan topiladi.
+
 ## 1.40.0 (8-noyabr)
 Liquid glass: jonli sinov maydoni va yaxshilangan sinish effekti
 

@@ -56,6 +56,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/rp_widget.h"
+#include "ui/effects/animation_value.h"
+#include "ui/effects/animations.h"
 #include "core/file_utilities.h"
 #include "styles/style_boxes.h"
 #include "styles/style_widgets.h"
@@ -67,12 +69,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_settings.h"
 
 #include <algorithm>
+#include <array>
 #include <QtCore/QDir>
 #include <QtCore/QFileInfo>
 #include <QtCore/QDateTime>
 #include <QtCore/QRegularExpression>
 #include <QtGui/QClipboard>
 #include <QtGui/QImage>
+#include <QtGui/QMouseEvent>
 #include <QtGui/QPainter>
 #include <QtGui/QPainterPath>
 #include <QtGui/QGuiApplication>
@@ -125,94 +129,215 @@ void AddGap(not_null<Ui::VerticalLayout*> container) {
 	Ui::AddSkip(AddChrome(container));
 }
 
-constexpr auto kGlassPreviewHeight = 400;
+// ---- Liquid glass settings: preview and inline controls ----
 
-// Colourful wallpaper for the glass preview (so blur and refraction are visible).
-[[nodiscard]] QImage GlassPreviewWall(QSize size) {
-	auto result = QImage(size, QImage::Format_RGB32);
-	auto p = QPainter(&result);
-	p.setRenderHint(QPainter::Antialiasing);
-	auto base = QLinearGradient(QPointF(0, 0), QPointF(size.width(), size.height()));
-	base.setColorAt(0., QColor(24, 34, 84));
-	base.setColorAt(1., QColor(86, 30, 98));
-	p.fillRect(QRect(QPoint(), size), base);
-	struct Blob {
-		double x, y, r;
-		QColor color;
+constexpr auto kGlassHeader = 54;
+constexpr auto kGlassInput = 44;
+constexpr auto kGlassPad = 12;
+constexpr auto kSegmentHeight = 42;
+constexpr auto kSwatchHeight = 56;
+
+struct GlassMessage {
+	bool out = false;
+	QString name;
+	QString text;
+	QString time;
+};
+
+[[nodiscard]] const std::vector<GlassMessage> &GlassMessages() {
+	static const auto result = std::vector<GlassMessage>{
+		{ false, u"Aziz"_q, u"ParadoksGram'da yangi liquid glass chiqibdi, ko'rdingmi?"_q, u"12:40"_q },
+		{ true, QString(), u"Ha! Xabarlar haqiqiy shishaga o'xshab qoldi"_q, u"12:41"_q },
+		{ true, QString(), u"Chekkadagi yorug'lik va sinish juda zo'r chiqdi"_q, u"12:41"_q },
+		{ false, u"Aziz"_q, u"Fon rang-barang bo'lsa yanayam chiroyli ko'rinadi"_q, u"12:42"_q },
 	};
-	const auto w = double(size.width());
-	const auto h = double(size.height());
-	const Blob blobs[] = {
-		{ 0.15, 0.20, 0.34, QColor(255, 140, 60) },
-		{ 0.85, 0.18, 0.30, QColor(40, 210, 255) },
-		{ 0.30, 0.55, 0.28, QColor(255, 70, 160) },
-		{ 0.80, 0.52, 0.34, QColor(80, 240, 150) },
-		{ 0.20, 0.88, 0.30, QColor(255, 220, 70) },
-		{ 0.75, 0.90, 0.28, QColor(150, 110, 255) },
-	};
-	p.setPen(Qt::NoPen);
-	for (const auto &blob : blobs) {
-		const auto center = QPointF(blob.x * w, blob.y * h);
-		const auto radius = blob.r * std::max(w, h) * 0.6;
-		auto gradient = QRadialGradient(center, radius);
-		auto inner = blob.color;
-		inner.setAlpha(210);
-		auto outer = blob.color;
-		outer.setAlpha(0);
-		gradient.setColorAt(0., inner);
-		gradient.setColorAt(1., outer);
-		p.setBrush(gradient);
-		p.drawEllipse(center, radius, radius);
-	}
-	p.end();
 	return result;
 }
 
-void PaintGlassPreview(QPainter &p, QSize size) {
-	if (size.width() < 40 || size.height() < 40) {
-		return;
-	}
-	const auto wall = GlassPreviewWall(size);
-	p.drawImage(0, 0, wall);
-	const auto width = size.width();
-	// Header of the mock chat.
-	p.fillRect(QRect(0, 0, width, 44), QColor(10, 14, 30, 150));
-	p.setPen(Qt::white);
-	p.setFont(st::semiboldFont);
-	p.drawText(QRect(14, 4, width - 28, 20), Qt::AlignLeft | Qt::AlignVCenter, u"ParadoksGram"_q);
-	p.setPen(QColor(200, 215, 255));
-	p.setFont(st::normalFont);
-	p.drawText(QRect(14, 23, width - 28, 18), Qt::AlignLeft | Qt::AlignVCenter, u"Muslihiddin yozmoqda..."_q);
+struct GlassLayout {
+	std::vector<QRect> bubbles;
+	QRect input;
+	int height = 0;
+};
 
-	struct Message {
-		bool out;
-		QString name;
-		QString text;
-	};
-	const Message messages[] = {
-		{ false, u"Aziz"_q, u"Muslihiddin, ParadoksGram'da yangi liquid glass chiqibdi, ko'rdingmi?"_q },
-		{ true, QString(), u"Ha! Xabarlarning orqa foni haqiqiy shishaga o'xshab qoldi"_q },
-		{ true, QString(), u"Shaffofligi, chekkadagi yorug'lik va sinish effekti juda zo'r chiqdi"_q },
-		{ false, u"Aziz"_q, u"Rostdan ham! Fon rang-barang bo'lsa yanayam chiroyli ko'rinadi"_q },
-		{ true, QString(), u"Sozlamalarni o'zgartirib ko'ring, natija shu yerning o'zida ko'rinadi"_q },
-	};
-	const auto level = GlassBubbleLevel();
-	const auto incomingGlass = GlassIncoming();
-	const auto font = st::normalFont->f;
-	const auto metrics = QFontMetrics(font);
-	const auto maxText = int(width * 0.72) - 24;
-	auto y = 54;
-	for (const auto &message : messages) {
+[[nodiscard]] GlassLayout LayoutGlassPreview(int width) {
+	auto result = GlassLayout();
+	const auto metrics = QFontMetrics(st::normalFont->f);
+	const auto boldMetrics = QFontMetrics(st::semiboldFont->f);
+	const auto maxText = std::max(60, int(width * 0.7) - 28);
+	auto y = kGlassHeader + 14;
+	for (const auto &message : GlassMessages()) {
 		const auto text = metrics.boundingRect(
 			QRect(0, 0, maxText, 10000),
 			Qt::TextWordWrap,
 			message.text);
-		const auto nameHeight = message.name.isEmpty() ? 0 : 16;
-		const auto bubbleWidth = std::max(text.width(), message.name.isEmpty() ? 0 : metrics.horizontalAdvance(message.name)) + 24;
-		const auto bubbleHeight = text.height() + nameHeight + 16;
-		const auto x = message.out ? (width - 10 - bubbleWidth) : 10;
-		const auto geometry = QRect(x, y, bubbleWidth, bubbleHeight);
-		const auto glass = level > 0 && (message.out || incomingGlass);
+		const auto nameWidth = message.name.isEmpty()
+			? 0
+			: boldMetrics.horizontalAdvance(message.name);
+		const auto nameHeight = message.name.isEmpty() ? 0 : 17;
+		const auto bubbleWidth = std::max({ text.width(), nameWidth, 44 }) + 30;
+		const auto bubbleHeight = 9 + nameHeight + text.height() + 15 + 6;
+		const auto x = message.out
+			? (width - kGlassPad - bubbleWidth)
+			: kGlassPad;
+		result.bubbles.push_back(QRect(x, y, bubbleWidth, bubbleHeight));
+		y += bubbleHeight + 8;
+	}
+	y += 6;
+	result.input = QRect(
+		kGlassPad,
+		y,
+		std::max(0, width - 2 * kGlassPad),
+		kGlassInput);
+	result.height = y + kGlassInput + kGlassPad;
+	return result;
+}
+
+// Our logo as a backdrop: the black plate is turned transparent, so only
+// the ghost itself stays.
+[[nodiscard]] const QImage &GlassGhost() {
+	static const auto result = [] {
+		auto image = QImage(u":/gui/art/logo_256_no_margin.png"_q)
+			.convertToFormat(QImage::Format_ARGB32);
+		for (auto y = 0; y != image.height(); ++y) {
+			auto line = reinterpret_cast<QRgb*>(image.scanLine(y));
+			for (auto x = 0; x != image.width(); ++x) {
+				const auto pixel = line[x];
+				const auto peak = std::max({
+					qRed(pixel),
+					qGreen(pixel),
+					qBlue(pixel) });
+				const auto alpha = std::clamp((peak - 14) * 255 / 56, 0, 255);
+				line[x] = qRgba(
+					qRed(pixel),
+					qGreen(pixel),
+					qBlue(pixel),
+					std::min(alpha, qAlpha(pixel)));
+			}
+		}
+		return image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+	}();
+	return result;
+}
+
+[[nodiscard]] const QImage &GlassLogo() {
+	static const auto result = QImage(u":/gui/art/logo_256_no_margin.png"_q);
+	return result;
+}
+
+// Deep gradient with soft glows and the ParadoksGram ghost in the middle.
+void PaintGlassWall(QPainter &p, QSize size) {
+	auto hq = PainterHighQualityEnabler(p);
+	const auto w = double(size.width());
+	const auto h = double(size.height());
+	auto base = QLinearGradient(QPointF(0, 0), QPointF(w, h));
+	base.setColorAt(0., QColor(9, 13, 32));
+	base.setColorAt(0.55, QColor(24, 18, 58));
+	base.setColorAt(1., QColor(46, 20, 78));
+	p.fillRect(QRectF(0, 0, w, h), base);
+	struct Glow {
+		double x, y, r;
+		QColor color;
+	};
+	const Glow glows[] = {
+		{ 0.12, 0.10, 0.55, QColor(40, 190, 255, 150) },
+		{ 0.92, 0.32, 0.60, QColor(150, 90, 255, 150) },
+		{ 0.18, 0.88, 0.50, QColor(255, 70, 170, 130) },
+		{ 0.88, 0.96, 0.38, QColor(255, 170, 60, 100) },
+	};
+	p.setPen(Qt::NoPen);
+	for (const auto &glow : glows) {
+		const auto center = QPointF(glow.x * w, glow.y * h);
+		const auto radius = glow.r * std::max(w, h);
+		auto gradient = QRadialGradient(center, radius);
+		auto outer = glow.color;
+		outer.setAlpha(0);
+		gradient.setColorAt(0., glow.color);
+		gradient.setColorAt(1., outer);
+		p.setBrush(gradient);
+		p.drawEllipse(center, radius, radius);
+	}
+	const auto &ghost = GlassGhost();
+	if (!ghost.isNull()) {
+		const auto side = std::min(w * 0.8, h * 0.7);
+		const auto center = QPointF(w / 2., h * 0.5);
+		auto aura = QRadialGradient(center, side * 0.75);
+		aura.setColorAt(0., QColor(190, 200, 255, 70));
+		aura.setColorAt(1., QColor(190, 200, 255, 0));
+		p.setBrush(aura);
+		p.drawEllipse(center, side * 0.75, side * 0.75);
+		p.setOpacity(0.9);
+		p.drawImage(
+			QRectF(
+				center.x() - side / 2.,
+				center.y() - side / 2.,
+				side,
+				side),
+			ghost);
+		p.setOpacity(1.);
+	}
+}
+
+// The whole mock chat, drawn once per settings/size change and cached.
+[[nodiscard]] QImage RenderGlassPreview(QSize size, qreal ratio) {
+	auto canvas = QImage(
+		QSize(
+			int(std::ceil(size.width() * ratio)),
+			int(std::ceil(size.height() * ratio))),
+		QImage::Format_ARGB32_Premultiplied);
+	canvas.setDevicePixelRatio(ratio);
+	canvas.fill(Qt::transparent);
+	if (size.width() < 120 || size.height() < 120) {
+		return canvas;
+	}
+	auto wall = QImage(size, QImage::Format_RGB32);
+	{
+		auto wallPainter = QPainter(&wall);
+		PaintGlassWall(wallPainter, size);
+	}
+
+	auto p = QPainter(&canvas);
+	auto hq = PainterHighQualityEnabler(p);
+	const auto width = size.width();
+	auto frame = QPainterPath();
+	frame.addRoundedRect(QRectF(QPointF(), QSizeF(size)), 18., 18.);
+	p.setClipPath(frame);
+	PaintGlassWall(p, size);
+
+	// Header.
+	p.fillRect(QRect(0, 0, width, kGlassHeader), QColor(8, 11, 26, 150));
+	p.fillRect(QRect(0, kGlassHeader - 1, width, 1), QColor(255, 255, 255, 28));
+	{
+		const auto avatar = QRect(14, 9, 36, 36);
+		auto circle = QPainterPath();
+		circle.addEllipse(avatar);
+		p.save();
+		p.setClipPath(circle, Qt::IntersectClip);
+		p.drawImage(avatar, GlassLogo());
+		p.restore();
+	}
+	p.setPen(Qt::white);
+	p.setFont(st::semiboldFont);
+	p.drawText(
+		QRect(60, 8, width - 74, 20),
+		Qt::AlignLeft | Qt::AlignVCenter,
+		u"ParadoksGram"_q);
+	p.setPen(QColor(150, 225, 190));
+	p.setFont(st::normalFont);
+	p.drawText(
+		QRect(60, 28, width - 74, 18),
+		Qt::AlignLeft | Qt::AlignVCenter,
+		u"onlayn"_q);
+
+	// Messages.
+	const auto layout = LayoutGlassPreview(width);
+	const auto level = GlassBubbleLevel();
+	const auto incomingGlass = GlassIncoming();
+	const auto &messages = GlassMessages();
+	for (auto i = 0; i != int(messages.size()); ++i) {
+		const auto &message = messages[i];
+		const auto geometry = layout.bubbles[i];
+		const auto glass = (level > 0) && (message.out || incomingGlass);
 		if (glass) {
 			auto rounding = Ui::BubbleRounding();
 			rounding.topLeft = rounding.topRight = Ui::BubbleCornerRounding::Large;
@@ -225,22 +350,300 @@ void PaintGlassPreview(QPainter &p, QSize size) {
 			Ui::PaintGlassBubble(p, geometry, rounding, level, wall, QPoint());
 		} else {
 			p.setPen(Qt::NoPen);
-			p.setBrush(message.out ? QColor(43, 108, 176) : QColor(43, 58, 82));
-			p.drawRoundedRect(QRectF(geometry), 14., 14.);
+			p.setBrush(message.out ? QColor(43, 108, 176) : QColor(38, 48, 72));
+			p.drawRoundedRect(QRectF(geometry), 16., 16.);
 		}
-		auto top = y + 8;
+		const auto left = geometry.x() + 14;
+		const auto inner = geometry.width() - 28;
+		auto top = geometry.y() + 9;
+		auto nameHeight = 0;
 		if (!message.name.isEmpty()) {
+			nameHeight = 17;
 			p.setPen(QColor(150, 210, 255));
 			p.setFont(st::semiboldFont);
-			p.drawText(QRect(x + 12, top, bubbleWidth - 24, 16), Qt::AlignLeft | Qt::AlignVCenter, message.name);
+			p.drawText(
+				QRect(left, top, inner, nameHeight),
+				Qt::AlignLeft | Qt::AlignVCenter,
+				message.name);
 			top += nameHeight;
 		}
+		const auto textHeight = geometry.height() - 9 - nameHeight - 15 - 6;
 		p.setPen(Qt::white);
 		p.setFont(st::normalFont);
-		p.drawText(QRect(x + 12, top, bubbleWidth - 24, text.height() + 2), Qt::AlignLeft | Qt::TextWordWrap, message.text);
-		y += bubbleHeight + 8;
+		p.drawText(
+			QRect(left, top, inner, textHeight),
+			Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
+			message.text);
+		p.setPen(QColor(255, 255, 255, 150));
+		p.drawText(
+			QRect(left, geometry.y() + geometry.height() - 6 - 15, inner, 15),
+			Qt::AlignRight | Qt::AlignVCenter,
+			message.time);
 	}
+
+	// Input bar.
+	const auto input = layout.input;
+	auto inputPath = QPainterPath();
+	inputPath.addRoundedRect(
+		QRectF(input),
+		input.height() / 2.,
+		input.height() / 2.);
+	p.fillPath(inputPath, QColor(255, 255, 255, 30));
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(QColor(255, 255, 255, 60), 1.));
+	p.drawPath(inputPath);
+	p.setPen(QColor(255, 255, 255, 130));
+	p.setFont(st::normalFont);
+	p.drawText(
+		input.adjusted(18, 0, -56, 0),
+		Qt::AlignLeft | Qt::AlignVCenter,
+		u"Xabar yozing..."_q);
+	const auto send = QRectF(input.right() - 38, input.top() + 6, 32, 32);
+	p.setPen(Qt::NoPen);
+	p.setBrush(QColor(43, 108, 176));
+	p.drawEllipse(send);
+	p.setPen(QPen(Qt::white, 2., Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+	const auto c = send.center();
+	p.drawLine(QPointF(c.x(), c.y() + 6), QPointF(c.x(), c.y() - 6));
+	p.drawLine(QPointF(c.x() - 5, c.y() - 1), QPointF(c.x(), c.y() - 6));
+	p.drawLine(QPointF(c.x() + 5, c.y() - 1), QPointF(c.x(), c.y() - 6));
+
+	// Thin rim around the whole card.
+	p.setClipping(false);
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(QColor(255, 255, 255, 40), 1.));
+	p.drawRoundedRect(
+		QRectF(0.5, 0.5, size.width() - 1., size.height() - 1.),
+		18.,
+		18.);
+	p.end();
+	return canvas;
 }
+
+// A pill-shaped segmented control with a sliding selection.
+class GlassSegmented final : public Ui::RpWidget {
+public:
+	GlassSegmented(
+		QWidget *parent,
+		std::vector<QString> labels,
+		int current,
+		Fn<void(int)> changed)
+	: Ui::RpWidget(parent)
+	, _labels(std::move(labels))
+	, _current(current)
+	, _changed(std::move(changed)) {
+		resize(width(), kSegmentHeight);
+		setMouseTracking(true);
+		setCursor(Qt::PointerHandCursor);
+	}
+
+protected:
+	void paintEvent(QPaintEvent *) override {
+		const auto count = int(_labels.size());
+		if (!count) {
+			return;
+		}
+		auto p = QPainter(this);
+		auto hq = PainterHighQualityEnabler(p);
+		const auto outer = QRectF(rect());
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::windowBgOver);
+		p.drawRoundedRect(outer, 13., 13.);
+		const auto inner = outer.adjusted(3., 3., -3., -3.);
+		const auto segment = inner.width() / count;
+		if (_over >= 0 && _over != _current) {
+			p.setBrush(QColor(128, 128, 128, 36));
+			p.drawRoundedRect(
+				QRectF(
+					inner.left() + _over * segment,
+					inner.top(),
+					segment,
+					inner.height()),
+				10.,
+				10.);
+		}
+		const auto position = _slide.value(float64(_current));
+		p.setBrush(st::windowBgActive);
+		p.drawRoundedRect(
+			QRectF(
+				inner.left() + position * segment,
+				inner.top(),
+				segment,
+				inner.height()),
+			10.,
+			10.);
+		p.setFont(st::semiboldFont);
+		for (auto i = 0; i != count; ++i) {
+			const auto ratio = std::clamp(
+				1. - std::abs(position - i),
+				0.,
+				1.);
+			p.setPen(anim::color(
+				st::windowFg->c,
+				st::windowFgActive->c,
+				ratio));
+			p.drawText(
+				QRectF(
+					inner.left() + i * segment,
+					inner.top(),
+					segment,
+					inner.height()),
+				Qt::AlignCenter,
+				_labels[i]);
+		}
+	}
+
+	void mouseMoveEvent(QMouseEvent *e) override {
+		setOver(indexAt(e->position().toPoint()));
+	}
+
+	void leaveEvent(QEvent *) override {
+		setOver(-1);
+	}
+
+	void mousePressEvent(QMouseEvent *e) override {
+		if (e->button() != Qt::LeftButton) {
+			return;
+		}
+		const auto index = indexAt(e->position().toPoint());
+		if (index < 0 || index == _current) {
+			return;
+		}
+		_slide.start(
+			[=] { update(); },
+			float64(_current),
+			float64(index),
+			240,
+			anim::easeOutCirc);
+		_current = index;
+		update();
+		if (_changed) {
+			_changed(index);
+		}
+	}
+
+private:
+	[[nodiscard]] int indexAt(QPoint point) const {
+		const auto count = int(_labels.size());
+		if (!count || !rect().contains(point)) {
+			return -1;
+		}
+		const auto segment = (width() - 6.) / count;
+		return std::clamp(int((point.x() - 3.) / segment), 0, count - 1);
+	}
+	void setOver(int index) {
+		if (_over != index) {
+			_over = index;
+			update();
+		}
+	}
+
+	std::vector<QString> _labels;
+	int _current = 0;
+	int _over = -1;
+	Fn<void(int)> _changed;
+	Ui::Animations::Simple _slide;
+
+};
+
+// Round colour swatches with a ring that glides to the chosen one.
+class GlassSwatches final : public Ui::RpWidget {
+public:
+	GlassSwatches(
+		QWidget *parent,
+		std::vector<QColor> colors,
+		int current,
+		Fn<void(int)> changed)
+	: Ui::RpWidget(parent)
+	, _colors(std::move(colors))
+	, _current(current)
+	, _changed(std::move(changed)) {
+		resize(width(), kSwatchHeight);
+		setMouseTracking(true);
+		setCursor(Qt::PointerHandCursor);
+	}
+
+protected:
+	void paintEvent(QPaintEvent *) override {
+		const auto count = int(_colors.size());
+		if (!count) {
+			return;
+		}
+		auto p = QPainter(this);
+		auto hq = PainterHighQualityEnabler(p);
+		const auto slot = width() / double(count);
+		const auto cy = height() / 2.;
+		for (auto i = 0; i != count; ++i) {
+			const auto cx = slot * (i + 0.5);
+			const auto radius = (_over == i) ? 16.5 : 15.;
+			const auto center = QPointF(cx, cy);
+			auto gradient = QRadialGradient(
+				center + QPointF(-radius * 0.3, -radius * 0.4),
+				radius * 1.6);
+			gradient.setColorAt(0., _colors[i].lighter(150));
+			gradient.setColorAt(1., _colors[i].darker(125));
+			p.setPen(QPen(QColor(128, 128, 128, 90), 1.));
+			p.setBrush(gradient);
+			p.drawEllipse(center, radius, radius);
+		}
+		const auto position = _slide.value(float64(_current));
+		const auto ringCenter = QPointF(slot * (position + 0.5), cy);
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(st::windowBgActive->c, 2.5));
+		p.drawEllipse(ringCenter, 20., 20.);
+	}
+
+	void mouseMoveEvent(QMouseEvent *e) override {
+		setOver(indexAt(e->position().toPoint()));
+	}
+
+	void leaveEvent(QEvent *) override {
+		setOver(-1);
+	}
+
+	void mousePressEvent(QMouseEvent *e) override {
+		if (e->button() != Qt::LeftButton) {
+			return;
+		}
+		const auto index = indexAt(e->position().toPoint());
+		if (index < 0 || index == _current) {
+			return;
+		}
+		_slide.start(
+			[=] { update(); },
+			float64(_current),
+			float64(index),
+			260,
+			anim::easeOutCirc);
+		_current = index;
+		update();
+		if (_changed) {
+			_changed(index);
+		}
+	}
+
+private:
+	[[nodiscard]] int indexAt(QPoint point) const {
+		const auto count = int(_colors.size());
+		if (!count || !rect().contains(point)) {
+			return -1;
+		}
+		return std::clamp(int(point.x() / (width() / double(count))), 0, count - 1);
+	}
+	void setOver(int index) {
+		if (_over != index) {
+			_over = index;
+			update();
+		}
+	}
+
+	std::vector<QColor> _colors;
+	int _current = 0;
+	int _over = -1;
+	Fn<void(int)> _changed;
+	Ui::Animations::Simple _slide;
+
+};
 
 not_null<Settings::Button*> AddRow(
 		not_null<Ui::GenericBox*> box,
@@ -389,6 +792,166 @@ void AddText(not_null<Ui::GenericBox*> box, const QString &text) {
 		CurrentSearch->pending.clear();
 	}
 	Ui::AddDividerText(AddChrome(box->verticalLayout()), rpl::single(text));
+}
+
+// Liquid glass: live preview and inline controls instead of dialog rows.
+void AddGlassSection(not_null<Ui::GenericBox*> box) {
+	const auto container = box->verticalLayout();
+	AddSection(container, u"Liquid glass (shisha xabarlar)"_q);
+
+	// The preview is a chrome block: it hides while the page is searched.
+	const auto holder = AddChrome(container);
+	const auto preview = holder->add(
+		object_ptr<Ui::RpWidget>(holder),
+		style::margins(
+			st::boxRowPadding.left(),
+			6,
+			st::boxRowPadding.right(),
+			10));
+	struct PreviewState {
+		QImage image;
+		std::array<int, 8> key = {};
+	};
+	const auto state = preview->lifetime().make_state<PreviewState>();
+	preview->widthValue(
+	) | rpl::on_next([=](int width) {
+		preview->resize(width, LayoutGlassPreview(width).height);
+	}, preview->lifetime());
+	preview->paintRequest(
+	) | rpl::on_next([=] {
+		auto p = QPainter(preview);
+		const auto size = preview->size();
+		const auto ratio = preview->devicePixelRatioF();
+		const auto key = std::array<int, 8>{
+			size.width(),
+			size.height(),
+			int(ratio * 100),
+			GlassBubbleLevel(),
+			GlassTint(),
+			GlassEdge(),
+			GlassIncoming() ? 1 : 0,
+			GlassRefract() ? 1 : 0,
+		};
+		if (state->image.isNull() || state->key != key) {
+			state->image = RenderGlassPreview(size, ratio);
+			state->key = key;
+		}
+		p.drawImage(0, 0, state->image);
+	}, preview->lifetime());
+	const auto refresh = [=] {
+		preview->update();
+	};
+
+	// Every control is a block the settings search can find.
+	const auto addBlock = [&](const QString &title) {
+		LastWasDivider = false;
+		const auto wrap = AddWrap(container);
+		if (CurrentSearch) {
+			CurrentSearch->pending.push_back(CurrentSearch->rows.size());
+			CurrentSearch->rows.push_back({
+				wrap,
+				std::make_shared<QString>(title),
+				QString() });
+		}
+		return wrap->entity();
+	};
+	const auto controlPadding = style::margins(
+		st::boxRowPadding.left(),
+		2,
+		st::boxRowPadding.right(),
+		12);
+
+	const auto levelBlock = addBlock(u"Liquid glass: shaffoflik darajasi"_q);
+	Ui::AddSubsectionTitle(levelBlock, rpl::single(u"Shaffoflik darajasi"_q));
+	levelBlock->add(
+		object_ptr<GlassSegmented>(
+			levelBlock,
+			std::vector<QString>{
+				u"O'chiq"_q,
+				u"Yengil"_q,
+				u"O'rtacha"_q,
+				u"Kuchli"_q },
+			GlassBubbleLevel(),
+			Fn<void(int)>([=](int value) {
+				SetGlassBubbleLevel(value);
+				refresh();
+			})),
+		controlPadding);
+
+	const auto tintTitle = [] {
+		static const auto names = std::vector<QString>{
+			u"rangsiz"_q, u"moviy"_q, u"binafsha"_q,
+			u"yashil"_q, u"pushti"_q, u"oltin"_q,
+		};
+		return u"Shisha rangi: "_q + names[GlassTint()];
+	};
+	const auto tintLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(tintTitle());
+	const auto tintBlock = addBlock(u"Liquid glass: shisha rangi"_q);
+	Ui::AddSubsectionTitle(tintBlock, tintLabel->value());
+	tintBlock->add(
+		object_ptr<GlassSwatches>(
+			tintBlock,
+			std::vector<QColor>{
+				QColor(236, 240, 247),
+				QColor(90, 167, 255),
+				QColor(170, 120, 255),
+				QColor(60, 220, 150),
+				QColor(255, 110, 170),
+				QColor(255, 190, 70) },
+			GlassTint(),
+			Fn<void(int)>([=](int value) {
+				SetGlassTint(value);
+				*tintLabel = tintTitle();
+				refresh();
+			})),
+		controlPadding);
+
+	const auto edgeBlock = addBlock(u"Liquid glass: chekka yorug'ligi"_q);
+	Ui::AddSubsectionTitle(edgeBlock, rpl::single(u"Chekka yorug'ligi"_q));
+	edgeBlock->add(
+		object_ptr<GlassSegmented>(
+			edgeBlock,
+			std::vector<QString>{
+				u"Yo'q"_q,
+				u"Yumshoq"_q,
+				u"Oddiy"_q,
+				u"Yorqin"_q },
+			GlassEdge(),
+			Fn<void(int)>([=](int value) {
+				SetGlassEdge(value);
+				refresh();
+			})),
+		controlPadding);
+
+	const auto incoming = AddRow(
+		box,
+		rpl::single(u"Kelgan xabarlarga ham liquid glass"_q),
+		&st::menuIconPalette);
+	incoming->toggleOn(
+		rpl::single(GlassIncoming())
+	)->toggledValue() | rpl::on_next([=](bool value) {
+		SetGlassIncoming(value);
+		refresh();
+	}, incoming->lifetime());
+	const auto refract = AddRow(
+		box,
+		rpl::single(u"Sinish effekti (chekkada rangli nur)"_q),
+		&st::menuIconPalette);
+	refract->toggleOn(
+		rpl::single(GlassRefract())
+	)->toggledValue() | rpl::on_next([=](bool value) {
+		SetGlassRefract(value);
+		refresh();
+	}, refract->lifetime());
+	AddText(
+		box,
+		u"Yuborgan xabarlaringizning orqa foni shishaday yarim shaffof "
+		"bo'ladi, \"Kuchli\" eng shaffof. Yuqoridagi sinov maydonida "
+		"sozlamalar darhol ko'rinadi. Sinov maydonida sinish effekti "
+		"haqiqiy xiralashtirish bilan chiziladi, chatda esa unga "
+		"o'xshash imitatsiya: chat foni rasmli yoki rangli bo'lsa "
+		"chiroyliroq ko'rinadi."_q);
 }
 
 [[nodiscard]] QStringList SplitWords(const QString &text) {
@@ -1426,131 +1989,7 @@ void SettingsBox(
 		"internetda \"Tez\" rejim tezroq. Juda ko'p oqim Telegram "
 		"cheklovini keltirib chiqarishi mumkin. Yangi yuklashlarga "
 		"qo'llanadi."_q);
-	const auto glassTitle = [] {
-		const auto level = GlassBubbleLevel();
-		return u"Xabar orqa foni: liquid glass ("_q
-			+ ((level == 1)
-				? u"yengil"_q
-				: (level == 2)
-				? u"o'rtacha"_q
-				: (level == 3)
-				? u"kuchli"_q
-				: u"o'chiq"_q)
-			+ ')';
-	};
-	const auto glassPreview = box->verticalLayout()->add(
-		object_ptr<Ui::RpWidget>(box),
-		style::margins(st::boxRowPadding.left(), 6, st::boxRowPadding.right(), 8));
-	glassPreview->resize(glassPreview->width(), kGlassPreviewHeight);
-	glassPreview->paintRequest(
-	) | rpl::on_next([=] {
-		auto p = QPainter(glassPreview);
-		p.setRenderHint(QPainter::Antialiasing);
-		p.setClipRect(glassPreview->rect());
-		PaintGlassPreview(p, glassPreview->size());
-	}, glassPreview->lifetime());
-	const auto glassLabel = box->lifetime().make_state<
-		rpl::variable<QString>>(glassTitle());
-	const auto glassButton = AddRow(box, glassLabel->value(), &st::menuIconPalette);
-	glassButton->setClickedCallback([=] {
-		static const auto options = std::vector<QString>{
-			u"O'chiq (oddiy moviy)"_q,
-			u"Yengil"_q,
-			u"O'rtacha"_q,
-			u"Kuchli (eng shaffof)"_q,
-		};
-		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
-			.title = rpl::single(u"Xabar orqa foni: liquid glass"_q),
-			.options = options,
-			.initialSelection = GlassBubbleLevel(),
-			.callback = Fn<void(int)>([=](int value) {
-				SetGlassBubbleLevel(value);
-				*glassLabel = glassTitle();
-				glassPreview->update();
-			}),
-		}));
-	});
-	const auto tintTitle = [] {
-		static const auto names = std::vector<QString>{
-			u"rangsiz"_q, u"moviy"_q, u"binafsha"_q,
-			u"yashil"_q, u"pushti"_q, u"oltin"_q,
-		};
-		return u"Shisha rangi: "_q + names[GlassTint()];
-	};
-	const auto tintLabel = box->lifetime().make_state<
-		rpl::variable<QString>>(tintTitle());
-	const auto tintButton = AddRow(box, tintLabel->value(), &st::menuIconPalette);
-	tintButton->setClickedCallback([=] {
-		static const auto options = std::vector<QString>{
-			u"Rangsiz"_q, u"Moviy"_q, u"Binafsha"_q,
-			u"Yashil"_q, u"Pushti"_q, u"Oltin"_q,
-		};
-		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
-			.title = rpl::single(u"Shisha rangi"_q),
-			.options = options,
-			.initialSelection = GlassTint(),
-			.callback = Fn<void(int)>([=](int value) {
-				SetGlassTint(value);
-				*tintLabel = tintTitle();
-				glassPreview->update();
-			}),
-		}));
-	});
-	const auto edgeTitle = [] {
-		static const auto names = std::vector<QString>{
-			u"yo'q"_q, u"yumshoq"_q, u"oddiy"_q, u"yorqin"_q,
-		};
-		return u"Chekka yorug'ligi: "_q + names[GlassEdge()];
-	};
-	const auto edgeLabel = box->lifetime().make_state<
-		rpl::variable<QString>>(edgeTitle());
-	const auto edgeButton = AddRow(box, edgeLabel->value(), &st::menuIconPalette);
-	edgeButton->setClickedCallback([=] {
-		static const auto options = std::vector<QString>{
-			u"Yo'q"_q, u"Yumshoq"_q, u"Oddiy"_q, u"Yorqin"_q,
-		};
-		controller->show(Box(SingleChoiceBox, SingleChoiceBoxArgs{
-			.title = rpl::single(u"Chekka yorug'ligi"_q),
-			.options = options,
-			.initialSelection = GlassEdge(),
-			.callback = Fn<void(int)>([=](int value) {
-				SetGlassEdge(value);
-				*edgeLabel = edgeTitle();
-				glassPreview->update();
-			}),
-		}));
-	});
-	const auto incomingTitle = [] {
-		return u"Kelgan xabarlarga ham liquid glass: "_q
-			+ (GlassIncoming() ? u"yoqilgan"_q : u"o'chiq"_q);
-	};
-	const auto incomingLabel = box->lifetime().make_state<
-		rpl::variable<QString>>(incomingTitle());
-	const auto incomingButton = AddRow(box, incomingLabel->value(), &st::menuIconPalette);
-	incomingButton->setClickedCallback([=] {
-		SetGlassIncoming(!GlassIncoming());
-		*incomingLabel = incomingTitle();
-		glassPreview->update();
-	});
-	const auto refractTitle = [] {
-		return u"Sinish effekti (chekkada rangli nur): "_q
-			+ (GlassRefract() ? u"yoqilgan"_q : u"o'chiq"_q);
-	};
-	const auto refractLabel = box->lifetime().make_state<
-		rpl::variable<QString>>(refractTitle());
-	const auto refractButton = AddRow(box, refractLabel->value(), &st::menuIconPalette);
-	refractButton->setClickedCallback([=] {
-		SetGlassRefract(!GlassRefract());
-		*refractLabel = refractTitle();
-		glassPreview->update();
-	});
-	AddText(
-		box,
-		u"Yuborgan xabarlaringizning orqa foni shishaday yarim shaffof "
-		"bo'ladi. \"Kuchli\" eng shaffof. Yuqoridagi sinov maydonida "
-		"sozlamalar darhol ko'rinadi. Sinov maydonida sinish effekti "
-		"haqiqiy xiralashtirish bilan chiziladi, chatda esa unga o'xshash "
-		"imitatsiya: chat foni rasmli yoki rangli bo'lsa chiroyliroq ko'rinadi."_q);
+	AddGlassSection(box);
 	AddToggle(
 		box,
 		Flag::FinishDownloads,
