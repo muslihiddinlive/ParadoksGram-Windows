@@ -401,18 +401,16 @@ jobs:
           echo "Using $exe"
           cp "$exe" artifact/
           cd artifact
-          7z a -tzip -mx=9 -mfb=258 -mpass=15 ../ParadoksGram-Windows-x64.zip Telegram.exe
-          7z a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=on ../ParadoksGram-Windows-x64.7z Telegram.exe
-          ls -l ../ParadoksGram-Windows-x64.*
-          # Linker map: maps crash addresses (Telegram.exe+0x...) to functions
-          # (full pdb files are switched off in this build to save disk).
           map=$(find /d/out -maxdepth 4 -name "Telegram.map" | head -n 1)
+          7z a -tzip -mx=9 -mfb=258 ../ParadoksGram-Windows-x64.zip Telegram.exe &
+          7z a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=on -mmt=2 ../ParadoksGram-Windows-x64.7z Telegram.exe &
           if [ -n "$map" ]; then
-            7z a -t7z -m0=lzma2 -mx=5 -md=64m ../ParadoksGram-Symbols.7z "$map"
-            ls -l ../ParadoksGram-Symbols.7z
+            7z a -t7z -m0=lzma2 -mx=5 -md=64m -mmt=1 ../ParadoksGram-Symbols.7z "$map" &
           else
             echo "No Telegram.map found under /d/out"
           fi
+          wait
+          ls -l ../ParadoksGram-Windows-x64.* ../ParadoksGram-Symbols.7z
 
       - name: Installer.
         if: steps.gate.outputs.skip != 'true'
