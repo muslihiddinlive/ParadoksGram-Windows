@@ -45,6 +45,7 @@ struct Job {
 	QUrl root;
 	QString dir;
 	QString html;
+	QString initData; // See the doc comment of Start() in the header.
 	std::deque<Item> queue;
 	QHash<QString, QString> known; // url -> local path
 	QStringList failed;
@@ -150,6 +151,38 @@ struct Job {
 			+ QChar(0xE001);
 	}
 	return Relative(*job, fromLocal, i.value());
+}
+
+[[nodiscard]] QString InjectInitData(
+		QString html,
+		const QString &initData) {
+	if (initData.isEmpty()) {
+		return html;
+	}
+	// Runs before anything else on the page (including the mini-app SDK
+	// script), so Telegram.WebApp.initData / initDataUnsafe read the value
+	// we set here as if the page had really been opened with it.
+	static const auto headRe = QRegularExpression(
+		u"<head[^>]*>"_q,
+		QRegularExpression::CaseInsensitiveOption);
+	const auto script = u"<script>(function(){try{"
+		"var h=(location.hash&&location.hash.length>1)?location.hash.slice(1):'';"
+		"var p=h?h.split('&').filter(function(x){"
+			"return x.indexOf('tgWebAppData=')!==0;"
+		"}):[];"
+		"p.unshift('tgWebAppData=%1');"
+		"if(h.indexOf('tgWebAppVersion=')===-1){p.push('tgWebAppVersion=7.10');}"
+		"if(h.indexOf('tgWebAppPlatform=')===-1){"
+			"p.push('tgWebAppPlatform=tdesktop');"
+		"}"
+		"location.hash='#'+p.join('&');"
+		"}catch(e){}})();</script>"_q.arg(initData);
+	const auto match = headRe.match(html);
+	if (match.hasMatch()) {
+		const auto at = match.capturedEnd();
+		return html.left(at) + script + html.mid(at);
+	}
+	return script + html;
 }
 
 [[nodiscard]] QString RewriteHtml(
@@ -560,6 +593,7 @@ void Next(const std::shared_ptr<Job> &job) {
 void Start(
 		const QString &url,
 		bool single,
+		const QString &initData,
 		Fn<void(const QString &)> progress,
 		Fn<void(const QString &)> done) {
 	auto root = QUrl(url.trimmed());
@@ -572,6 +606,7 @@ void Start(
 	const auto job = std::make_shared<Job>();
 	job->root = root;
 	job->single = single;
+	job->initData = initData;
 	job->progress = std::move(progress);
 	job->done = std::move(done);
 	const auto documents = QStandardPaths::writableLocation(
@@ -604,7 +639,9 @@ void Start(
 		job->root = reply->url();
 		job->root.setFragment(QString());
 		const auto html = QString::fromUtf8(reply->readAll());
-		const auto rewritten = RewriteHtml(job, html);
+		const auto rewritten = InjectInitData(
+			RewriteHtml(job, html),
+			job->initData);
 		if (single) {
 			job->html = rewritten;
 			Next(job);

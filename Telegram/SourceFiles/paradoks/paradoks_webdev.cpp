@@ -32,6 +32,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QTimer>
 #include <QtCore/QUrl>
 #include <QtCore/QUrlQuery>
+#include <QtCore/QRandomGenerator>
 #include <QtCore/QDir>
 #include <QtCore/QFileInfo>
 #include <QtGui/QClipboard>
@@ -162,6 +163,121 @@ void Push(bool incoming, const QString &name, QString payload) {
 
 bool CloneBusy = false;
 
+enum class CloneData {
+	None, // Page only, no initData (as before).
+	Real, // The initData this mini-app was really opened with.
+	Fake, // Same shape, but id/username/first_name are replaced, and
+	      // hash/signature/query_id/auth_date no longer validate.
+};
+
+// The literal value of tgWebAppData=... in CurrentUrl's fragment, taken
+// as-is (still percent-encoded exactly like Telegram produced it), so
+// re-embedding it reproduces a fully working, still-valid initData.
+[[nodiscard]] QString RawInitDataFragmentValue() {
+	const auto hash = CurrentUrl.indexOf('#');
+	if (hash < 0) {
+		return QString();
+	}
+	const auto fragment = CurrentUrl.mid(hash + 1);
+	for (const auto &pair : fragment.split('&', Qt::SkipEmptyParts)) {
+		const auto eq = pair.indexOf('=');
+		if (eq > 0 && pair.left(eq) == u"tgWebAppData"_q) {
+			return pair.mid(eq + 1);
+		}
+	}
+	return QString();
+}
+
+// tgWebAppData, decoded exactly one level (same as the "raw" value shown
+// in the initData tab): a plain "key=value&key=value..." string where the
+// user/receiver values are themselves still percent-encoded JSON.
+[[nodiscard]] QString DecodedInitDataQuery() {
+	if (CurrentUrl.isEmpty()) {
+		return QString();
+	}
+	const auto url = QUrl(CurrentUrl);
+	const auto fragment = QUrlQuery(url.fragment());
+	return fragment.queryItemValue(u"tgWebAppData"_q, QUrl::FullyDecoded);
+}
+
+[[nodiscard]] qint64 FakeUserId() {
+	return 100000000LL
+		+ qint64(QRandomGenerator::global()->bounded(1900000000));
+}
+
+[[nodiscard]] QString RandomToken(int length) {
+	static const auto chars = u"abcdefghijklmnopqrstuvwxyz0123456789"_q;
+	auto result = QString();
+	result.reserve(length);
+	for (auto i = 0; i != length; ++i) {
+		result += chars[QRandomGenerator::global()->bounded(chars.size())];
+	}
+	return result;
+}
+
+// Keeps the same JSON shape (so the mini-app's own code does not break on
+// a missing field), but the id, username and name no longer point to the
+// real account.
+[[nodiscard]] QString FakeIdentityJson(const QString &json) {
+	const auto doc = QJsonDocument::fromJson(json.toUtf8());
+	if (!doc.isObject()) {
+		return json;
+	}
+	auto object = doc.object();
+	if (object.contains(u"id"_q)) {
+		object[u"id"_q] = FakeUserId();
+	}
+	if (object.contains(u"username"_q)) {
+		object[u"username"_q] = u"user_"_q + RandomToken(7);
+	}
+	if (object.contains(u"first_name"_q)) {
+		object[u"first_name"_q] = u"Foydalanuvchi"_q;
+	}
+	if (object.contains(u"last_name"_q)) {
+		object.remove(u"last_name"_q);
+	}
+	if (object.contains(u"photo_url"_q)) {
+		object.remove(u"photo_url"_q);
+	}
+	return QString::fromUtf8(
+		QJsonDocument(object).toJson(QJsonDocument::Compact));
+}
+
+// A value with the same shape as RawInitDataFragmentValue(), but with the
+// identifying fields replaced. The hash/signature no longer validate
+// against the bot's secret, so a backend that checks them will reject it:
+// this is for trying out the mini-app's own screens under a different
+// identity, not for impersonating anyone with the real app's server.
+[[nodiscard]] QString FakeInitDataFragmentValue() {
+	const auto raw = DecodedInitDataQuery();
+	if (raw.isEmpty()) {
+		return QString();
+	}
+	const auto query = QUrlQuery(raw);
+	auto rebuilt = QUrlQuery();
+	for (const auto &item : query.queryItems(QUrl::FullyDecoded)) {
+		const auto &key = item.first;
+		const auto &value = item.second;
+		if (key == u"user"_q || key == u"receiver"_q) {
+			rebuilt.addQueryItem(key, FakeIdentityJson(value));
+		} else if (key == u"hash"_q || key == u"signature"_q) {
+			rebuilt.addQueryItem(key, RandomToken(64));
+		} else if (key == u"query_id"_q) {
+			rebuilt.addQueryItem(key, u"AAFAKE"_q + RandomToken(16));
+		} else if (key == u"chat_instance"_q) {
+			rebuilt.addQueryItem(key, RandomToken(16));
+		} else if (key == u"auth_date"_q) {
+			rebuilt.addQueryItem(
+				key,
+				QString::number(QDateTime::currentSecsSinceEpoch()));
+		} else {
+			rebuilt.addQueryItem(key, value);
+		}
+	}
+	return QString::fromUtf8(
+		QUrl::toPercentEncoding(rebuilt.toString(QUrl::FullyEncoded)));
+}
+
 void SendCloneToSavedMessages(
 		const QString &path,
 		const Fn<void(const QString &)> &toast) {
@@ -192,7 +308,7 @@ void SendCloneToSavedMessages(
 	toast(u"Saved Messages ga yuborilmoqda."_q);
 }
 
-void StartClone(bool single) {
+void StartClone(bool single, CloneData mode) {
 	const auto toast = [](const QString &text) {
 		if (const auto window = Core::App().activePrimaryWindow()) {
 			window->showToast(text);
@@ -202,11 +318,26 @@ void StartClone(bool single) {
 		toast(u"Nusxalash davom etyapti..."_q);
 		return;
 	}
+	auto initData = QString();
+	if (mode == CloneData::Real) {
+		initData = RawInitDataFragmentValue();
+		if (initData.isEmpty()) {
+			toast(u"initData topilmadi, bu mini-app shunsiz ochilgan."_q);
+			return;
+		}
+	} else if (mode == CloneData::Fake) {
+		initData = FakeInitDataFragmentValue();
+		if (initData.isEmpty()) {
+			toast(u"initData topilmadi, bu mini-app shunsiz ochilgan."_q);
+			return;
+		}
+	}
 	CloneBusy = true;
 	toast(u"Mini-app nusxalanmoqda..."_q);
 	WebCopy::Start(
 		CurrentUrl,
 		single,
+		initData,
 		[](const QString &) {},
 		[=](const QString &path) {
 			CloneBusy = false;
@@ -216,6 +347,39 @@ void StartClone(bool single) {
 			}
 			SendCloneToSavedMessages(path, toast);
 		});
+}
+
+// Second step of the clone flow: after the ZIP/single-HTML choice, ask
+// whether to bake initData into the copy, and which kind.
+void AskCloneDataMode(QWidget *parent, Fn<void(CloneData)> chosen) {
+	const auto box = new QMessageBox(
+		QMessageBox::Question,
+		u"Mini-appni klonlash"_q,
+		u"initData bilanmi?"_q,
+		QMessageBox::NoButton,
+		parent);
+	box->setAttribute(Qt::WA_DeleteOnClose);
+	const auto none = box->addButton(
+		u"Yo'q (faqat sahifa)"_q,
+		QMessageBox::AcceptRole);
+	const auto real = box->addButton(
+		u"Mening initData'm bilan"_q,
+		QMessageBox::AcceptRole);
+	const auto fake = box->addButton(
+		u"Soxta initData bilan (ID, username almashtiriladi)"_q,
+		QMessageBox::AcceptRole);
+	box->addButton(u"Bekor qilish"_q, QMessageBox::RejectRole);
+	QObject::connect(box, &QMessageBox::buttonClicked, box, [=](
+			QAbstractButton *button) {
+		if (button == none) {
+			chosen(CloneData::None);
+		} else if (button == real) {
+			chosen(CloneData::Real);
+		} else if (button == fake) {
+			chosen(CloneData::Fake);
+		}
+	});
+	box->show();
 }
 
 void BuildWindow() {
@@ -296,8 +460,12 @@ void BuildWindow() {
 		u"Ochiq mini-appning ochiq qismini (HTML, CSS, skriptlar, rasmlar) "
 		"ZIP qilib saqlaydi va Saved Messages ga yuboradi (limit 1.5 GB), "
 		"havolalar offlayn ochiladigan qilib o'zgartiriladi. "
-		"Hech qanday shaxsiy ma'lumot (initData, cookie) yuborilmaydi. "
-		"Serverdagi (backend) kod saqlanmaydi. Faqat o'z mini-appingiz yoki "
+		"Hech qanday shaxsiy ma'lumot tarmoqqa yuborilmaydi. Xohlasangiz, "
+		"keyingi oynada o'zingizning yoki soxtalashtirilgan (ID, username "
+		"almashtirilgan) initData ham nusxaning ichiga qo'shiladi — bu "
+		"hech qayerga yuborilmaydi, faqat saqlangan nusxa ochilganda "
+		"ishlatiladi. Serverdagi (backend) kod saqlanmaydi. Faqat o'z "
+		"mini-appingiz yoki "
 		"o'rganish uchun foydalaning: boshqaning ishini o'zinikidek "
 		"chiqarish mualliflik huquqini buzadi."_q,
 		copyTab);
@@ -352,9 +520,20 @@ void BuildWindow() {
 	QObject::connect(devtools, &QCheckBox::toggled, window, [=](bool on) {
 		SetDevTools(on);
 	});
-	const auto startCopy = [=](bool single) {
+	const auto startCopy = [=](bool single, CloneData mode) {
 		if (CurrentUrl.isEmpty()) {
 			copyLog->setPlainText(u"Mini-app ochilmagan."_q);
+			return;
+		}
+		auto initData = QString();
+		if (mode == CloneData::Real) {
+			initData = RawInitDataFragmentValue();
+		} else if (mode == CloneData::Fake) {
+			initData = FakeInitDataFragmentValue();
+		}
+		if (mode != CloneData::None && initData.isEmpty()) {
+			copyLog->setPlainText(
+				u"initData topilmadi, bu mini-app shunsiz ochilgan."_q);
 			return;
 		}
 		copyStart->setEnabled(false);
@@ -365,6 +544,7 @@ void BuildWindow() {
 		WebCopy::Start(
 			CurrentUrl,
 			single,
+			initData,
 			[=](const QString &line) {
 				if (guard) {
 					copyLog->appendPlainText(line);
@@ -414,10 +594,14 @@ void BuildWindow() {
 			});
 	};
 	QObject::connect(copyStart, &QPushButton::clicked, window, [=] {
-		startCopy(false);
+		AskCloneDataMode(window, [=](CloneData mode) {
+			startCopy(false, mode);
+		});
 	});
 	QObject::connect(htmlStart, &QPushButton::clicked, window, [=] {
-		startCopy(true);
+		AskCloneDataMode(window, [=](CloneData mode) {
+			startCopy(true, mode);
+		});
 	});
 	QObject::connect(copyOpen, &QPushButton::clicked, window, [=] {
 		if (!copyFolder->isEmpty()) {
@@ -480,9 +664,13 @@ void CloneCurrent() {
 	QObject::connect(box, &QMessageBox::buttonClicked, box, [=](
 			QAbstractButton *button) {
 		if (button == zip) {
-			StartClone(false);
+			AskCloneDataMode(nullptr, [](CloneData mode) {
+				StartClone(false, mode);
+			});
 		} else if (button == html) {
-			StartClone(true);
+			AskCloneDataMode(nullptr, [](CloneData mode) {
+				StartClone(true, mode);
+			});
 		}
 	});
 	box->show();
