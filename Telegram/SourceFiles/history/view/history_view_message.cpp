@@ -66,6 +66,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "api/api_rich_tasks.h"
 #include "styles/style_chat.h"
+#include "paradoks/paradoks_config.h"
+#include "paradoks/paradoks_store.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_chat_style.h"
 #include "styles/style_dialogs.h"
@@ -1997,6 +1999,10 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 				}
 			}
 		}
+		Paradoks::SetGlassDeletedHint(Paradoks::IsDeleted(data()));
+		const auto resetDeletedHint = gsl::finally([] {
+			Paradoks::SetGlassDeletedHint(false);
+		});
 		if (!richPageGaps.empty()) {
 			if (!rich->tornEdges) {
 				rich->tornEdges = std::make_unique<Ui::TornEdgeCache>();

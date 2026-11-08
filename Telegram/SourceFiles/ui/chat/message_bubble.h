@@ -136,7 +136,11 @@ void PaintGlassBubble(
 	BubbleRounding rounding,
 	int level,
 	const QImage &backdrop = QImage(),
-	QPoint backdropTopLeft = QPoint());
+	QPoint backdropTopLeft = QPoint(),
+	int role = 0); // 0 - sent, 1 - received, 2 - deleted
+
+// ParadoksGram: a clear glass disc for round buttons.
+void PaintGlassCircle(QPainter &p, const QRect &rect);
 
 void PaintBubble(QPainter &p, const SimpleBubble &args);
 void PaintBubble(QPainter &p, const ComplexBubble &args);

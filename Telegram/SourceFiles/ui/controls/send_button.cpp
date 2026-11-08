@@ -6,6 +6,8 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/controls/send_button.h"
+#include "ui/chat/message_bubble.h"
+#include "paradoks/paradoks_config.h"
 
 #include "lang/lang_tag.h"
 #include "lottie/lottie_icon.h"
@@ -157,6 +159,17 @@ void SendButton::paintEvent(QPaintEvent *e) {
 	auto p = QPainter(this);
 
 	auto over = (isDown() || isOver());
+
+	if (Paradoks::GlassButtons()) {
+		const auto side = std::min(width(), height()) - 8;
+		if (side > 8) {
+			Ui::PaintGlassCircle(p, QRect(
+				(width() - side) / 2,
+				(height() - side) / 2,
+				side,
+				side));
+		}
+	}
 
 	if (_voiceRoundAnimating) {
 		paintVoiceRoundIcon(p, over);

@@ -99,6 +99,12 @@ void SetGlassTint(int value);
 void SetGlassEdge(int value);
 [[nodiscard]] bool GlassRefract();
 void SetGlassRefract(bool value);
+// Liquid glass behind the send button.
+[[nodiscard]] bool GlassButtons();
+void SetGlassButtons(bool value);
+// Set by the message painter around a bubble of a deleted message.
+[[nodiscard]] bool GlassDeletedHint();
+void SetGlassDeletedHint(bool value);
 
 [[nodiscard]] int VoiceEffect();
 void SetVoiceEffect(int mode);

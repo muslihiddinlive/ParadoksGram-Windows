@@ -70,6 +70,8 @@ std::atomic<int> GlassIncomingValue = -1;
 std::atomic<int> PreSaveMaxMbValue = -1;
 std::atomic<int> GlassEdgeValue = -1;
 std::atomic<int> GlassRefractValue = -1;
+std::atomic<int> GlassButtonsValue = -1;
+bool GlassDeletedHintValue = false;
 std::atomic<int> IconVariant = 0;
 std::once_flag LoadFlag;
 
@@ -364,6 +366,28 @@ bool GlassRefract() {
 void SetGlassRefract(bool value) {
 	GlassRefractValue.store(value ? 1 : 0);
 	SetIntSetting(u"glass_refract"_q, value ? 1 : 0);
+}
+
+bool GlassButtons() {
+	auto value = GlassButtonsValue.load();
+	if (value < 0) {
+		value = IntSetting(u"glass_buttons"_q, 0) ? 1 : 0;
+		GlassButtonsValue.store(value);
+	}
+	return value != 0;
+}
+
+void SetGlassButtons(bool value) {
+	GlassButtonsValue.store(value ? 1 : 0);
+	SetIntSetting(u"glass_buttons"_q, value ? 1 : 0);
+}
+
+bool GlassDeletedHint() {
+	return GlassDeletedHintValue;
+}
+
+void SetGlassDeletedHint(bool value) {
+	GlassDeletedHintValue = value;
 }
 
 void SetGlassBubbleLevel(int level) {

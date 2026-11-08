@@ -209,6 +209,7 @@ void PaintGlassPreview(QPainter &p, QSize size) {
 		bool out;
 		QString name;
 		QString text;
+		bool deleted = false;
 	};
 	const Message messages[] = {
 		{ false, u"Aziz"_q, u"Muslihiddin, ParadoksGram'da yangi liquid glass chiqibdi, ko'rdingmi?"_q },
@@ -216,6 +217,7 @@ void PaintGlassPreview(QPainter &p, QSize size) {
 		{ true, QString(), u"Shaffofligi, chekkadagi yorug'lik va sinish effekti juda zo'r chiqdi"_q },
 		{ false, u"Aziz"_q, u"Rostdan ham! Fon rang-barang bo'lsa yanayam chiroyli ko'rinadi"_q },
 		{ true, QString(), u"Sozlamalarni o'zgartirib ko'ring, natija shu yerning o'zida ko'rinadi"_q },
+		{ false, u"Aziz"_q, u"Bu xabarni o'chirib yuborgandim, lekin ParadoksGram saqlab qoldi"_q, true },
 	};
 	const auto level = GlassBubbleLevel();
 	const auto incomingGlass = GlassIncoming();
@@ -233,7 +235,8 @@ void PaintGlassPreview(QPainter &p, QSize size) {
 		const auto bubbleHeight = text.height() + nameHeight + 16;
 		const auto x = message.out ? (width - 10 - bubbleWidth) : 10;
 		const auto geometry = QRect(x, y, bubbleWidth, bubbleHeight);
-		const auto glass = level > 0 && (message.out || incomingGlass);
+		const auto glass = level > 0
+			&& (message.out || incomingGlass || message.deleted);
 		if (glass) {
 			auto rounding = Ui::BubbleRounding();
 			rounding.topLeft = rounding.topRight = Ui::BubbleCornerRounding::Large;
@@ -243,7 +246,14 @@ void PaintGlassPreview(QPainter &p, QSize size) {
 			rounding.bottomRight = message.out
 				? Ui::BubbleCornerRounding::Small
 				: Ui::BubbleCornerRounding::Large;
-			Ui::PaintGlassBubble(p, geometry, rounding, level, wall, QPoint());
+			Ui::PaintGlassBubble(
+				p,
+				geometry,
+				rounding,
+				level,
+				wall,
+				QPoint(),
+				message.deleted ? 2 : (message.out ? 0 : 1));
 		} else {
 			p.setPen(Qt::NoPen);
 			p.setBrush(message.out ? QColor(43, 108, 176) : QColor(43, 58, 82));
@@ -1514,7 +1524,7 @@ void SettingsBox(
 		glassPreview->update();
 	});
 	const auto refractTitle = [] {
-		return u"Sinish effekti (chekkada rangli nur): "_q
+		return u"Sinish effekti (suv quyilgandek): "_q
 			+ (GlassRefract() ? u"yoqilgan"_q : u"o'chiq"_q);
 	};
 	const auto refractLabel = box->lifetime().make_state<
@@ -1525,9 +1535,20 @@ void SettingsBox(
 		*refractLabel = refractTitle();
 		glassPreview->update();
 	});
+	const auto buttonsTitle = [] {
+		return u"Tugmalar uchun liquid glass (yuborish tugmasi): "_q
+			+ (GlassButtons() ? u"yoqilgan"_q : u"o'chiq"_q);
+	};
+	const auto buttonsLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(buttonsTitle());
+	const auto buttonsButton = AddRow(box, buttonsLabel->value(), &st::menuIconPalette);
+	buttonsButton->setClickedCallback([=] {
+		SetGlassButtons(!GlassButtons());
+		*buttonsLabel = buttonsTitle();
+	});
 	AddText(
 		box,
-		u"Yuborgan xabarlaringizning orqa foni shishaday yarim shaffof "
+		u"Yuborgan xabarlaringiz rangli shisha, kelganlari rangsiz shaffof shisha, o'chirilganlari qizil shisha bo'ladi. Orqa fon shishaday yarim shaffof "
 		"bo'ladi. \"Kuchli\" eng shaffof. Yuqoridagi sinov maydonida "
 		"sozlamalar darhol ko'rinadi. Sinov maydonida sinish effekti "
 		"haqiqiy xiralashtirish bilan chiziladi, chatda esa unga o'xshash "

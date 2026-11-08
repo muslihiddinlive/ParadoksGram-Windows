@@ -401,18 +401,18 @@ namespace {
 			const auto dx = x - cx;
 			const auto dy = y - cy;
 			const auto length = std::max(1., std::hypot(dx, dy));
-			const auto sx = origin.x() + x + dx / length * bend;
-			const auto sy = origin.y() + y + dy / length * bend;
-			const auto fringe = rim * 3.;
-			const auto first = sample(sx + fringe, sy);
-			const auto second = sample(sx, sy);
-			const auto third = sample(sx - fringe, sy);
-			const auto red = qRed(first);
-			const auto green = qGreen(second);
-			const auto blue = qBlue(third);
+			// Water: a slow ripple over the whole bubble plus the lens at the rim.
+			const auto rippleX = std::sin(y * 0.30 + x * 0.05) * 2.4;
+			const auto rippleY = std::cos(x * 0.24 - y * 0.06) * 2.4;
+			const auto sx = origin.x() + x + dx / length * bend + rippleX;
+			const auto sy = origin.y() + y + dy / length * bend + rippleY;
+			const auto color = sample(sx, sy);
+			const auto red = qRed(color);
+			const auto green = qGreen(color);
+			const auto blue = qBlue(color);
 			const auto avg = (red + green + blue) / 3;
 			const auto boost = [&](int value) {
-				return std::clamp(avg + (value - avg) * 3 / 2, 0, 255);
+				return std::clamp(avg + (value - avg) * 5 / 4, 0, 255);
 			};
 			*line++ = qRgb(boost(red), boost(green), boost(blue));
 		}
@@ -426,7 +426,8 @@ void PaintGlassOverlay(
 		BubbleRounding rounding,
 		int level,
 		const QImage &backdrop,
-		QPoint backdropTopLeft) {
+		QPoint backdropTopLeft,
+		int role) {
 	const auto rect = QRectF(geometry);
 	if (rect.width() < 8 || rect.height() < 8) {
 		return;
@@ -488,11 +489,17 @@ void PaintGlassOverlay(
 		QColor(255, 110, 170),
 		QColor(255, 190, 70),
 	};
+	// Sent: tinted glass. Received: clear colourless glass. Deleted: red glass.
 	const auto tint = Paradoks::GlassTint();
-	const auto fillAlpha = (tint == 0)
-		? ((level == 1) ? 0.34 : (level == 2) ? 0.22 : 0.12)
-		: ((level == 1) ? 0.62 : (level == 2) ? 0.46 : 0.30);
-	auto fill = tints[tint];
+	auto fill = (role == 2)
+		? QColor(255, 70, 70)
+		: (role == 1)
+		? QColor(255, 255, 255)
+		: tints[tint];
+	const auto coloured = (role == 2) || (role == 0 && tint != 0);
+	const auto fillAlpha = coloured
+		? ((level == 1) ? 0.58 : (level == 2) ? 0.42 : 0.28)
+		: ((level == 1) ? 0.26 : (level == 2) ? 0.15 : 0.07);
 	fill.setAlphaF(fillAlpha);
 	p.setPen(Qt::NoPen);
 	p.setBrush(fill);
@@ -506,46 +513,51 @@ void PaintGlassOverlay(
 		: (edgeLevel == 2)
 		? 1.
 		: 1.4;
-	if (strength > 0.
-		&& (rounding.topLeft != Corner::None
-			|| rounding.topRight != Corner::None)) {
-		auto sheen = QLinearGradient(
-			rect.topLeft(),
-			QPointF(rect.left(), rect.top() + rect.height() * 0.55));
-		sheen.setColorAt(0., QColor(255, 255, 255, std::min(255, int(85 * strength))));
-		sheen.setColorAt(0.35, QColor(255, 255, 255, std::min(255, int(20 * strength))));
-		sheen.setColorAt(1., QColor(255, 255, 255, 0));
-		p.setBrush(sheen);
-		p.drawPath(path);
-	}
-	p.setBrush(Qt::NoBrush);
-	if (Paradoks::GlassRefract() && refracted.isNull()) {
-		// Imitation of light bending at the rim: coloured fringes.
-		p.save();
-		p.translate(-0.8, -0.8);
-		p.setPen(QPen(QColor(80, 216, 255, 90), 1.5));
-		p.drawPath(path);
-		p.restore();
-		p.save();
-		p.translate(0.8, 0.8);
-		p.setPen(QPen(QColor(255, 128, 176, 90), 1.5));
-		p.drawPath(path);
-		p.restore();
-	}
-	if (Paradoks::GlassRefract()) {
-		// Caustic glow along the bottom rim.
-		auto caustic = QLinearGradient(
-			QPointF(rect.left(), rect.bottom()),
-			QPointF(rect.left(), rect.bottom() - rect.height() * 0.4));
-		caustic.setColorAt(0., QColor(130, 225, 255, 60));
-		caustic.setColorAt(1., QColor(255, 140, 190, 0));
-		p.setPen(Qt::NoPen);
-		p.setBrush(caustic);
-		p.drawPath(path);
-		p.setBrush(Qt::NoBrush);
-	}
 	if (strength > 0.) {
-		p.setPen(QPen(QColor(255, 255, 255, std::min(255, int(110 * strength))), 1.));
+		// Soft inner shadow: a wide dark stroke clipped to the inside.
+		p.save();
+		p.setClipPath(path);
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(QColor(0, 0, 0, std::min(255, int(26 * strength))), 7.));
+		p.drawPath(path);
+		p.restore();
+		// Specular highlights where the glass curves (top left, bottom right).
+		const auto spot = std::min(rect.height(), 34.);
+		auto topSpot = QRadialGradient(
+			rect.topLeft() + QPointF(spot * 0.7, spot * 0.55),
+			spot);
+		topSpot.setColorAt(0., QColor(255, 255, 255, std::min(255, int(120 * strength))));
+		topSpot.setColorAt(1., QColor(255, 255, 255, 0));
+		p.setPen(Qt::NoPen);
+		p.setBrush(topSpot);
+		p.drawPath(path);
+		auto bottomSpot = QRadialGradient(
+			rect.bottomRight() - QPointF(spot * 0.7, spot * 0.55),
+			spot);
+		bottomSpot.setColorAt(0., QColor(255, 255, 255, std::min(255, int(70 * strength))));
+		bottomSpot.setColorAt(1., QColor(255, 255, 255, 0));
+		p.setBrush(bottomSpot);
+		p.drawPath(path);
+		if (Paradoks::GlassRefract() && refracted.isNull()) {
+			// Imitation of the water layer: a neutral wet sheen along the bottom.
+			auto wet = QLinearGradient(
+				QPointF(rect.left(), rect.bottom()),
+				QPointF(rect.left(), rect.bottom() - rect.height() * 0.45));
+			wet.setColorAt(0., QColor(255, 255, 255, std::min(255, int(55 * strength))));
+			wet.setColorAt(1., QColor(255, 255, 255, 0));
+			p.setBrush(wet);
+			p.drawPath(path);
+		}
+		// Thin neutral rim, a little cooler for received and red-white for deleted.
+		const auto rimColor = (role == 2)
+			? QColor(255, 205, 205)
+			: (role == 1)
+			? QColor(205, 225, 255)
+			: QColor(255, 255, 255);
+		auto rimLight = rimColor;
+		rimLight.setAlpha(std::min(255, int(120 * strength)));
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(rimLight, 1.));
 		p.drawPath(path);
 	}
 }
@@ -558,14 +570,50 @@ void PaintGlassBubble(
 		BubbleRounding rounding,
 		int level,
 		const QImage &backdrop,
-		QPoint backdropTopLeft) {
-	PaintGlassOverlay(p, geometry, rounding, level, backdrop, backdropTopLeft);
+		QPoint backdropTopLeft,
+		int role) {
+	PaintGlassOverlay(p, geometry, rounding, level, backdrop, backdropTopLeft, role);
+}
+
+void PaintGlassCircle(QPainter &p, const QRect &rect) {
+	const auto hq = PainterHighQualityEnabler(p);
+	const auto inner = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5);
+	p.setPen(Qt::NoPen);
+	p.setBrush(QColor(255, 255, 255, 46));
+	p.drawEllipse(inner);
+	p.save();
+	auto clip = QPainterPath();
+	clip.addEllipse(inner);
+	p.setClipPath(clip);
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(QColor(0, 0, 0, 34), 6.));
+	p.drawEllipse(inner);
+	auto spot = QRadialGradient(
+		inner.topLeft() + QPointF(inner.width() * 0.32, inner.height() * 0.28),
+		inner.width() * 0.5);
+	spot.setColorAt(0., QColor(255, 255, 255, 110));
+	spot.setColorAt(1., QColor(255, 255, 255, 0));
+	p.setPen(Qt::NoPen);
+	p.setBrush(spot);
+	p.drawEllipse(inner);
+	p.restore();
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(QColor(255, 255, 255, 130), 1.));
+	p.drawEllipse(inner);
 }
 
 void PaintBubble(QPainter &p, const SimpleBubble &args) {
-	if (args.outbg || Paradoks::GlassIncoming()) {
+	const auto deleted = Paradoks::GlassDeletedHint();
+	if (args.outbg || Paradoks::GlassIncoming() || deleted) {
 		if (const auto glass = Paradoks::GlassBubbleLevel()) {
-			PaintGlassOverlay(p, args.geometry, args.rounding, glass, QImage(), QPoint());
+			PaintGlassOverlay(
+				p,
+				args.geometry,
+				args.rounding,
+				glass,
+				QImage(),
+				QPoint(),
+				deleted ? 2 : (args.outbg ? 0 : 1));
 			return;
 		}
 	}
