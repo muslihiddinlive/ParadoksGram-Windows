@@ -27,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "media/audio/media_audio.h"
 #include "media/view/media_view_playback_progress.h"
+#include "paradoks/paradoks_musiclab.h"
 #include "media/player/media_player_button.h"
 #include "media/player/media_player_instance.h"
 #include "media/player/media_player_dropdown.h"
@@ -37,6 +38,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "window/window_session_controller.h"
 #include "styles/style_media_player.h"
+#include "styles/style_menu_icons.h"
+#include "styles/style_widgets.h"
 
 namespace Media {
 namespace Player {
@@ -539,6 +542,26 @@ void Widget::mouseReleaseEvent(QMouseEvent *e) {
 			}
 		}
 	}
+}
+
+void Widget::contextMenuEvent(QContextMenuEvent *e) {
+	if (_type != AudioMsgId::Type::Song) {
+		return;
+	}
+	const auto current = instance()->current(_type);
+	const auto document = current.audio();
+	if (!document) {
+		return;
+	}
+	_contextMenu = base::make_unique_q<Ui::PopupMenu>(
+		this,
+		st::popupMenuWithIcons);
+	Paradoks::MusicLab::AddMenuAction(
+		_contextMenu.get(),
+		_controller,
+		document,
+		current.contextId());
+	_contextMenu->popup(e->globalPos());
 }
 
 void Widget::updateOverLabelsState(QPoint pos) {

@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
+#include "paradoks/paradoks_musiclab.h"
 #include "paradoks/paradoks_ui.h"
 #include "ui/toast/toast.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
@@ -137,6 +138,13 @@ void AddSaveDocumentAction(
 		item,
 		document,
 		list->controller());
+	if (document->isAudioFile() && !document->isVoiceMessage()) {
+		Paradoks::MusicLab::AddMenuAction(
+			menu,
+			list->controller(),
+			document,
+			item->fullId());
+	}
 }
 
 } // namespace HistoryView

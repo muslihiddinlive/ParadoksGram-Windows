@@ -1751,6 +1751,8 @@ PRIVATE
     paradoks/paradoks_viewer.cpp
     paradoks/paradoks_viewer.h
     paradoks/paradoks_meta.cpp
+    paradoks/paradoks_musiclab.cpp
+    paradoks/paradoks_musiclab.h
     paradoks/paradoks_meta.h
     paradoks/paradoks_webcopy.cpp
     paradoks/paradoks_webcopy.h

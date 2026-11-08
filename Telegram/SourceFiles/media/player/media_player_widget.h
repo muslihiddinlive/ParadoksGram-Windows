@@ -18,6 +18,7 @@ class FlatLabel;
 class LabelSimple;
 class IconButton;
 class PlainShadow;
+class PopupMenu;
 class FilledSlider;
 template <typename Widget>
 class FadeWrap;
@@ -74,6 +75,7 @@ private:
 	void mouseMoveEvent(QMouseEvent *e) override;
 	void mousePressEvent(QMouseEvent *e) override;
 	void mouseReleaseEvent(QMouseEvent *e) override;
+	void contextMenuEvent(QContextMenuEvent *e) override;
 
 	[[nodiscard]] not_null<Ui::RpWidget*> rightControls();
 	void setupRightControls();
@@ -158,6 +160,7 @@ private:
 	object_ptr<Ui::PlainShadow> _shadow = { nullptr };
 	object_ptr<Ui::FilledSlider> _playbackSlider;
 	base::unique_qptr<Dropdown> _volume;
+	base::unique_qptr<Ui::PopupMenu> _contextMenu;
 	std::unique_ptr<View::PlaybackProgress> _playbackProgress;
 	std::unique_ptr<OrderController> _orderController;
 	std::unique_ptr<SpeedController> _speedController;
