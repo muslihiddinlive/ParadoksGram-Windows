@@ -410,7 +410,7 @@ jobs:
             echo "No Telegram.map found under /d/out"
           fi
           wait
-          ls -l ../ParadoksGram-Windows-x64.* ../ParadoksGram-Symbols.7z
+          ls -l ../ParadoksGram-Windows-x64.* ../ParadoksGram-Symbols.7z || true
 
       - name: Installer.
         if: steps.gate.outputs.skip != 'true'
