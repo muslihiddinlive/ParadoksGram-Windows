@@ -509,20 +509,24 @@ bool LoadDbCopyFirst(
 	const auto copy = DbCopyFor(
 		item->history()->peer->id.value,
 		item->id.bare);
+	Debug::Log(u"restore %1_%2: db copy %3"_q.arg(item->history()->peer->id.value).arg(item->id.bare).arg(copy ? u"known"_q : u"MISSING"_q));
 	if (!copy) {
 		return false;
 	}
 	const auto peerId = PeerId(copy->first);
 	const auto msgId = MsgId(copy->second);
 	if (session->data().message(peerId, msgId)) {
+		Debug::Log(u"restore: copy message already in memory"_q);
 		return false;
 	}
 	const auto peer = session->data().peerLoaded(peerId);
 	// One attempt per copy: if the server does not return it, fall back.
 	static auto tried = std::set<std::pair<uint64, int64>>();
 	if (!peer || !tried.emplace(copy->first, copy->second).second) {
+		Debug::Log(u"restore: no loaded peer or already tried"_q);
 		return false;
 	}
+	Debug::Log(u"restore: requesting copy message from server"_q);
 	session->api().requestMessageData(peer, msgId, std::move(done));
 	return true;
 }

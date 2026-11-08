@@ -93,7 +93,16 @@ void DocumentSaveClickHandler::Save(
 			}))) {
 		return;
 	}
-	origin = Paradoks::RestoreOrigin(origin, &data->session());
+	{
+		const auto swapped = Paradoks::RestoreOrigin(origin, &data->session());
+		const auto before = std::get_if<Data::FileOriginMessage>(&origin.data);
+		const auto after = std::get_if<Data::FileOriginMessage>(&swapped.data);
+		if (before && after && *before != *after) {
+			// A failed or stale load of the deleted message would swallow the new request.
+			data->cancel();
+			origin = swapped;
+		}
+	}
 	auto savename = QString();
 	if (mode == Mode::ToCacheOrFile && data->saveToCache()) {
 		data->save(origin, savename);
