@@ -2,6 +2,11 @@ name: ParadoksGram Windows.
 
 on:
   workflow_dispatch:
+    inputs:
+      clean_build:
+        description: 'Ignore the incremental build cache and compile everything'
+        type: boolean
+        default: false
   # Cache-only run: GitHub deletes caches that were not used for 7 days, and a cold Libraries step
   # (Qt, ffmpeg, ...) takes over an hour. Restoring the caches every 4 days keeps them alive.
   schedule:
@@ -15,15 +20,44 @@ on:
 
 permissions:
   contents: write
+  actions: write   # to prune older build directory caches
 
+# A running build is never cancelled by a newer push (a build is long and used to be thrown away
+# again and again). While one runs, GitHub keeps only the newest waiting run, so pushes made
+# during a build are merged into one following build.
 concurrency:
   group: paradoks-win
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
 
+  # Pushes often come in bursts. Wait a few minutes and only build the commit that is still the
+  # tip of the branch, so a burst costs one build instead of several.
+  settle:
+    name: Wait for more pushes
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      current: ${{ steps.check.outputs.current }}
+    steps:
+      - name: Wait.
+        run: sleep 240
+      - name: Is this still the newest commit?
+        id: check
+        run: |
+          tip=$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}" "refs/heads/${GITHUB_REF_NAME}" | cut -f1)
+          if [ "$tip" = "$GITHUB_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::A newer commit (${tip:0:7}) exists, this one is skipped."
+          fi
+
   windows:
     name: Windows x64
+    needs: settle
+    if: ${{ !cancelled() && (needs.settle.result == 'skipped' || needs.settle.outputs.current == 'true') }}
     runs-on: windows-latest
     timeout-minutes: 350
 
@@ -212,10 +246,34 @@ jobs:
             echo "ADS_SERVER_URL is empty, own ads stay off."
           fi
 
+      # Incremental builds: restore the previous build directory (objects, precompiled header,
+      # generated code). Only sources that changed since then get recompiled. Disable with
+      # "[clean]" in the commit message or the clean_build input of a manual run.
+      - name: Build directory cache.
+        id: cache-out
+        if: steps.gate.outputs.skip != 'true' && github.event.inputs.clean_build != 'true' && !contains(github.event.head_commit.message, '[clean]')
+        uses: actions/cache/restore@v6
+        with:
+          path: D:\out
+          key: ${{ runner.OS }}-x64-out-v1-${{ env.CACHE_KEY }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.OS }}-x64-out-v1-${{ env.CACHE_KEY }}-
+
+      - name: Incremental build preparation.
+        if: steps.cache-out.outputs.cache-matched-key != ''
+        shell: bash
+        continue-on-error: true
+        run: |
+          SRC="$(cygpath -u "$TBUILD/$REPO_NAME")"
+          bash "$SRC/.github/scripts/paradoks-incremental.sh" prepare "$SRC" /d/out || {
+            echo "::warning::Preparation failed, doing a clean build instead."
+            rm -rf /d/out/* /d/out/.paradoks_src_manifest
+          }
+
       - name: Build output on D drive.
         if: steps.gate.outputs.skip != 'true'
         run: |
-          mkdir D:\out
+          if not exist D:\out mkdir D:\out
           mklink /d %TBUILD%\%REPO_NAME%\out D:\out
 
       - name: ParadoksGram configure.
@@ -258,6 +316,7 @@ jobs:
           Start-Process pwsh -WindowStyle Hidden -ArgumentList '-NoProfile','-File',"$env:GITHUB_WORKSPACE\watch.ps1"
 
       - name: ParadoksGram build.
+        id: build
         if: steps.gate.outputs.skip != 'true'
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
@@ -284,6 +343,37 @@ jobs:
             echo "::notice title=disk.log::$(tail -n 8 "$GITHUB_WORKSPACE/disk.log" | enc)"
           fi
           exit 0
+
+      # Save the build directory also after a failed build: the objects that did compile are
+      # valid, so the next attempt only has to build what is missing.
+      - name: Record the sources of this build directory.
+        id: out-manifest
+        if: always() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure')
+        shell: bash
+        continue-on-error: true
+        run: |
+          SRC="$(cygpath -u "$TBUILD/$REPO_NAME")"
+          bash "$SRC/.github/scripts/paradoks-incremental.sh" save "$SRC" /d/out
+
+      - name: Save build directory cache.
+        if: always() && steps.out-manifest.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: D:\out
+          key: ${{ runner.OS }}-x64-out-v1-${{ env.CACHE_KEY }}-${{ github.sha }}
+
+      - name: Prune older build directory caches.
+        if: always() && steps.out-manifest.outcome == 'success'
+        shell: bash
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --key "${RUNNER_OS}-x64-out-v1-" --sort created_at --order desc --limit 100 --json id --jq '.[1:][].id')
+          for id in $ids; do
+            gh cache delete "$id" --repo "$GITHUB_REPOSITORY" || true
+          done
 
       - name: Sign Telegram.exe (only when a certificate secret is set).
         if: steps.gate.outputs.skip != 'true'

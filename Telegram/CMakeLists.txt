@@ -2839,13 +2839,18 @@ else()
     set(PARADOKS_VERSION "0.0.0")
 endif()
 
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/paradoks_build_info.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/paradoks_gen/paradoks_build_info.h
+    @ONLY
+)
+target_include_directories(Telegram PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/paradoks_gen)
+
 target_compile_definitions(Telegram
 PRIVATE
-    PARADOKS_VERSION="${PARADOKS_VERSION}"
     TDESKTOP_API_ID=${TDESKTOP_API_ID}
     TDESKTOP_API_HASH=${TDESKTOP_API_HASH}
     G_LOG_DOMAIN="Telegram"
-    PARADOKS_BUILD_NUMBER=${PARADOKS_BUILD_NUMBER}
 )
 
 get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)

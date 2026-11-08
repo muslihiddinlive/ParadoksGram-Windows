@@ -35,6 +35,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <windows.h>
 #endif // Q_OS_WIN
 
+#if __has_include("paradoks_build_info.h")
+#include "paradoks_build_info.h"
+#endif
+
 #ifndef PARADOKS_VERSION
 #define PARADOKS_VERSION "0.0.0"
 #endif // !PARADOKS_VERSION
