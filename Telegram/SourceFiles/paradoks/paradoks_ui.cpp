@@ -132,42 +132,16 @@ constexpr auto kGlassPreviewHeight = 400;
 	auto p = QPainter(&result);
 	p.setRenderHint(QPainter::Antialiasing);
 	auto base = QLinearGradient(QPointF(0, 0), QPointF(size.width(), size.height()));
-	base.setColorAt(0., QColor(24, 34, 84));
-	base.setColorAt(1., QColor(86, 30, 98));
+	base.setColorAt(0., QColor(14, 18, 28));
+	base.setColorAt(1., QColor(24, 30, 46));
 	p.fillRect(QRect(QPoint(), size), base);
-	struct Blob {
-		double x, y, r;
-		QColor color;
-	};
-	const auto w = double(size.width());
-	const auto h = double(size.height());
-	const Blob blobs[] = {
-		{ 0.15, 0.20, 0.34, QColor(255, 140, 60) },
-		{ 0.85, 0.18, 0.30, QColor(40, 210, 255) },
-		{ 0.30, 0.55, 0.28, QColor(255, 70, 160) },
-		{ 0.80, 0.52, 0.34, QColor(80, 240, 150) },
-		{ 0.20, 0.88, 0.30, QColor(255, 220, 70) },
-		{ 0.75, 0.90, 0.28, QColor(150, 110, 255) },
-	};
-	p.setPen(Qt::NoPen);
-	for (const auto &blob : blobs) {
-		const auto center = QPointF(blob.x * w, blob.y * h);
-		const auto radius = blob.r * std::max(w, h) * 0.6;
-		auto gradient = QRadialGradient(center, radius);
-		auto inner = blob.color;
-		inner.setAlpha(210);
-		auto outer = blob.color;
-		outer.setAlpha(0);
-		gradient.setColorAt(0., inner);
-		gradient.setColorAt(1., outer);
-		p.setBrush(gradient);
-		p.drawEllipse(center, radius, radius);
-	}
 	// The ParadoksGram logo: a faint tiled pattern plus one large mark.
 	const auto logo = QImage(u":/gui/art/logo_256_no_margin.png"_q);
 	if (!logo.isNull()) {
+		// Screen blend drops the logo's dark square: only the ghost itself stays.
+		p.setCompositionMode(QPainter::CompositionMode_Screen);
 		const auto tile = 84;
-		p.setOpacity(0.16);
+		p.setOpacity(0.5);
 		for (auto y = 10; y < size.height(); y += tile + 26) {
 			const auto shift = ((y / (tile + 26)) % 2) ? (tile / 2) : 0;
 			for (auto x = 10 - shift; x < size.width(); x += tile + 26) {
@@ -175,7 +149,7 @@ constexpr auto kGlassPreviewHeight = 400;
 			}
 		}
 		const auto big = int(std::min(size.width(), size.height()) * 0.62);
-		p.setOpacity(0.5);
+		p.setOpacity(0.9);
 		p.drawImage(
 			QRect(
 				(size.width() - big) / 2,
@@ -184,6 +158,7 @@ constexpr auto kGlassPreviewHeight = 400;
 				big),
 			logo);
 		p.setOpacity(1.);
+		p.setCompositionMode(QPainter::CompositionMode_SourceOver);
 	}
 	p.end();
 	return result;
