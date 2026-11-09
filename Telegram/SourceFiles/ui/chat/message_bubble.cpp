@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include <QtGui/QPainterPath>
 #include <algorithm>
+#include <iterator>
 #include <cmath>
 #include "styles/style_chat.h"
 #include "styles/style_chat_style.h"
@@ -420,6 +421,19 @@ namespace {
 	return result;
 }
 
+[[nodiscard]] QColor GlassTintColor(int index) {
+	static const QColor tints[] = {
+		QColor(255, 255, 255),
+		QColor(90, 167, 255),
+		QColor(170, 120, 255),
+		QColor(60, 220, 150),
+		QColor(255, 110, 170),
+		QColor(255, 190, 70),
+	};
+	constexpr auto kCount = int(std::size(tints));
+	return tints[std::clamp(index, 0, kCount - 1)];
+}
+
 void PaintGlassOverlay(
 		QPainter &p,
 		const QRect &geometry,
@@ -481,21 +495,13 @@ void PaintGlassOverlay(
 		p.drawImage(geometry.topLeft(), refracted);
 		p.restore();
 	}
-	static const QColor tints[] = {
-		QColor(255, 255, 255),
-		QColor(90, 167, 255),
-		QColor(170, 120, 255),
-		QColor(60, 220, 150),
-		QColor(255, 110, 170),
-		QColor(255, 190, 70),
-	};
 	// Sent: tinted glass. Received: clear colourless glass. Deleted: red glass.
 	const auto tint = Paradoks::GlassTint();
 	auto fill = (role == 2)
 		? QColor(255, 70, 70)
 		: (role == 1)
 		? QColor(255, 255, 255)
-		: tints[tint];
+		: GlassTintColor(tint);
 	const auto coloured = (role == 2) || (role == 0 && tint != 0);
 	const auto fillAlpha = coloured
 		? ((level == 1) ? 0.58 : (level == 2) ? 0.42 : 0.28)
@@ -579,7 +585,13 @@ void PaintGlassCircle(QPainter &p, const QRect &rect) {
 	const auto hq = PainterHighQualityEnabler(p);
 	const auto inner = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5);
 	p.setPen(Qt::NoPen);
-	p.setBrush(QColor(255, 255, 255, 46));
+	// Our colour (the chosen glass tint) instead of a fixed blue.
+	const auto tintIndex = Paradoks::GlassTint();
+	auto fill = (tintIndex > 0)
+		? GlassTintColor(tintIndex)
+		: QColor(255, 255, 255);
+	fill.setAlpha((tintIndex > 0) ? 120 : 46);
+	p.setBrush(fill);
 	p.drawEllipse(inner);
 	p.save();
 	auto clip = QPainterPath();

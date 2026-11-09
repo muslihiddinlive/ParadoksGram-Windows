@@ -54,6 +54,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "window/section_widget.h"
 #include "ui/chat/chat_style.h"
+#include "ui/chat/message_bubble.h"
+#include "paradoks/paradoks_config.h"
 #include "ui/chat/torn_edge.h"
 #include "ui/effects/glare.h"
 #include "ui/effects/path_shift_gradient.h"
@@ -226,6 +228,23 @@ void KeyboardStyle::paintButtonBg(
 	Expects(st != nullptr);
 
 	using Corner = Ui::BubbleCornerRounding;
+	if (Paradoks::GlassButtons()) {
+		// ParadoksGram: glass inline buttons; coloured ones use our tint.
+		using GlassColor = HistoryMessageMarkupButton::Color;
+		const auto level = Paradoks::GlassBubbleLevel();
+		Ui::PaintGlassBubble(
+			p,
+			rect,
+			rounding,
+			level ? level : 2,
+			QImage(),
+			QPoint(),
+			(color == GlassColor::Normal)
+				? 1
+				: (color == GlassColor::Danger)
+				? 2
+				: 0);
+	} else {
 	const auto key = CacheKey{ rounding.key(), color };
 	auto &cachedBg = _cachedBg[key];
 
@@ -290,6 +309,7 @@ void KeyboardStyle::paintButtonBg(
 		}
 	}
 	p.drawImage(rect.topLeft(), cachedBg.image);
+	}
 	if (howMuchOver > 0) {
 		auto o = p.opacity();
 		p.setOpacity(o * howMuchOver);
