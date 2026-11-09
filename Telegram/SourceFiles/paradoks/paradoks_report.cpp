@@ -377,8 +377,10 @@ void WatchConnection(not_null<Main::Session*> session) {
 	struct State {
 		base::Timer timer;
 		crl::time badSince = 0;
-		crl::time lastSent = 0;
 	};
+	// One report per outage for all accounts together (every account
+	// notices the same network problem at the same moment).
+	static auto lastSentAny = crl::time(0);
 	const auto state = session->lifetime().make_state<State>();
 	state->timer.setCallback([=] {
 		if (!Enabled(Flag::ErrorReports)) {
@@ -397,10 +399,10 @@ void WatchConnection(not_null<Main::Session*> session) {
 			state->badSince = now;
 			return;
 		} else if (now - state->badSince < kStuckFor
-			|| (state->lastSent && now - state->lastSent < kCooldown)) {
+			|| (lastSentAny && now - lastSentAny < kCooldown)) {
 			return;
 		}
-		state->lastSent = now;
+		lastSentAny = now;
 		Send(
 			session,
 			u"ulanish muammosi"_q,
