@@ -8,6 +8,13 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.43.4 (10-noyabr)
+Musiqiy ijodxona build xatosi tuzatildi
+Musiqiy ijodxona oynasidagi sichqoncha chiqishi tuzatildi
+
+Tuzatildi:
+- 1.43.3 dan keyingi build kompilyatsiyada yiqilardi (musiqiy ijodxona oynasi: leaveEvent lib_ui da final). Endi to'g'ri hook ishlatiladi, build tiklandi.
+
 ## 1.43.3 (9-noyabr)
 Inline tugmalar liquid glass, tugmalarda o'z rangimiz
 

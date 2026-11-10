@@ -851,7 +851,7 @@ protected:
 		update();
 	}
 
-	void leaveEvent(QEvent *e) override {
+	void leaveEventHook(QEvent *e) override {
 		_hover = -1;
 		update();
 	}
