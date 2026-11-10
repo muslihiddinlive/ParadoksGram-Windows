@@ -441,7 +441,8 @@ void PaintGlassOverlay(
 		int level,
 		const QImage &backdrop,
 		QPoint backdropTopLeft,
-		int role) {
+		int role,
+		qreal customRadius = -1.) {
 	const auto rect = QRectF(geometry);
 	if (rect.width() < 8 || rect.height() < 8) {
 		return;
@@ -455,10 +456,12 @@ void PaintGlassOverlay(
 			? small
 			: 0.;
 	};
-	const auto tl = radius(rounding.topLeft);
-	const auto tr = radius(rounding.topRight);
-	const auto br = radius(rounding.bottomRight);
-	const auto bl = radius(rounding.bottomLeft);
+	const auto custom = (customRadius >= 0.);
+	const auto cap = std::min(rect.width(), rect.height()) / 2.;
+	const auto tl = custom ? std::min(customRadius, cap) : radius(rounding.topLeft);
+	const auto tr = custom ? std::min(customRadius, cap) : radius(rounding.topRight);
+	const auto br = custom ? std::min(customRadius, cap) : radius(rounding.bottomRight);
+	const auto bl = custom ? std::min(customRadius, cap) : radius(rounding.bottomLeft);
 	auto path = QPainterPath();
 	path.moveTo(rect.left() + tl, rect.top());
 	path.lineTo(rect.right() - tr, rect.top());
@@ -579,6 +582,30 @@ void PaintGlassBubble(
 		QPoint backdropTopLeft,
 		int role) {
 	PaintGlassOverlay(p, geometry, rounding, level, backdrop, backdropTopLeft, role);
+}
+
+void PaintGlassRounded(
+		QPainter &p,
+		const QRect &geometry,
+		qreal radius,
+		int level,
+		const QImage &backdrop,
+		QPoint backdropTopLeft,
+		int role) {
+	auto rounding = BubbleRounding();
+	rounding.topLeft = BubbleCornerRounding::Large;
+	rounding.topRight = BubbleCornerRounding::Large;
+	rounding.bottomLeft = BubbleCornerRounding::Large;
+	rounding.bottomRight = BubbleCornerRounding::Large;
+	PaintGlassOverlay(
+		p,
+		geometry,
+		rounding,
+		level,
+		backdrop,
+		backdropTopLeft,
+		role,
+		radius);
 }
 
 void PaintGlassCircle(QPainter &p, const QRect &rect) {

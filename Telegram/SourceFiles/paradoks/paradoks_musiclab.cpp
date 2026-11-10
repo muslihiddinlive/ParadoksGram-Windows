@@ -8,6 +8,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_musiclab.h"
 
 #include "paradoks/paradoks_debug.h"
+#include "paradoks/paradoks_config.h"
+#include "ui/chat/message_bubble.h"
+#include "ui/rp_widget.h"
+#include "styles/style_basic.h"
+#include "styles/palette.h"
 #include "api/api_common.h"
 #include "apiwrap.h"
 #include "base/call_delayed.h"
@@ -38,6 +43,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 
+#include <QtGui/QMouseEvent>
+#include <QtGui/QPainter>
+#include <QtGui/QPainterPath>
 #include <QtCore/QDir>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
@@ -647,6 +655,7 @@ struct State {
 	QString name;
 	Pcm pcm;
 	Params params;
+	std::vector<float> spectrum;
 	int bpm = 0;
 	bool loaded = false;
 	bool busy = false;
@@ -657,12 +666,634 @@ struct State {
 	rpl::variable<QString> status = QString();
 };
 
+[[nodiscard]] std::vector<float> MakeSpectrum(const Pcm &pcm, int bars = 28) {
+	auto result = std::vector<float>(bars, 0.f);
+	const auto total = pcm.frames();
+	if (total < bars * 64) {
+		return result;
+	}
+	const auto step = total / bars;
+	const auto stride = std::max<int64>(1, step / 2000);
+	auto peak = 0.f;
+	for (auto i = 0; i != bars; ++i) {
+		auto sum = 0.;
+		auto count = 0;
+		for (auto k = int64(i) * step; k < int64(i + 1) * step; k += stride) {
+			const auto m = (pcm.l[k] + pcm.r[k]) * 0.5f;
+			sum += double(m) * m;
+			++count;
+		}
+		result[i] = count ? float(std::sqrt(sum / count)) : 0.f;
+		peak = std::max(peak, result[i]);
+	}
+	if (peak > 0.f) {
+		for (auto &value : result) {
+			value = std::sqrt(value / peak);
+		}
+	}
+	return result;
+}
+
+// ---- Liquid glass studio (custom painted, not a mini app) ----
+
+constexpr auto kStudioWidth = 460;
+constexpr auto kStudioHeight = 730;
+
+[[nodiscard]] QImage MakeWall(QSize size) {
+	auto source = QImage(u":/gui/art/paradoks_moon.jpg"_q);
+	if (source.isNull()) {
+		auto fallback = QImage(size, QImage::Format_RGB32);
+		fallback.fill(QColor(18, 12, 12));
+		return fallback;
+	}
+	// Cover-fit by height; keep the moon (about 40% from the left) in view.
+	const auto scaled = source.scaledToHeight(
+		size.height(),
+		Qt::SmoothTransformation);
+	const auto left = std::clamp(
+		int(scaled.width() * 0.40) - size.width() / 2,
+		0,
+		std::max(0, scaled.width() - size.width()));
+	return scaled.copy(left, 0, size.width(), size.height())
+		.convertToFormat(QImage::Format_RGB32);
+}
+
+[[nodiscard]] QImage BlurImage(const QImage &src) {
+	const auto small = src.scaled(
+		std::max(2, src.width() / 9),
+		std::max(2, src.height() / 9),
+		Qt::IgnoreAspectRatio,
+		Qt::SmoothTransformation);
+	return small.scaled(
+		src.size(),
+		Qt::IgnoreAspectRatio,
+		Qt::SmoothTransformation).convertToFormat(QImage::Format_RGB32);
+}
+
+[[nodiscard]] QFont StudioFont(int pixels, bool bold = false) {
+	auto result = st::normalFont->f;
+	result.setPixelSize(pixels);
+	result.setBold(bold);
+	return result;
+}
+
+class GlassStudio final : public Ui::RpWidget {
+public:
+	struct Callbacks {
+		Fn<void()> preview;
+		Fn<void()> share;
+		Fn<void()> save;
+		Fn<void()> close;
+	};
+
+	GlassStudio(
+		QWidget *parent,
+		std::shared_ptr<State> state,
+		Callbacks callbacks)
+	: RpWidget(parent)
+	, _state(std::move(state))
+	, _callbacks(std::move(callbacks)) {
+		resize(kStudioWidth, kStudioHeight);
+		setMouseTracking(true);
+		const auto ratio = devicePixelRatioF();
+		auto wall = MakeWall(QSize(
+			int(std::round(kStudioWidth * ratio)),
+			int(std::round(kStudioHeight * ratio))));
+		{
+			// A little darker towards the bottom so glass text stays legible.
+			auto p = QPainter(&wall);
+			auto shade = QLinearGradient(0, 0, 0, wall.height());
+			shade.setColorAt(0., QColor(0, 0, 0, 20));
+			shade.setColorAt(1., QColor(0, 0, 0, 120));
+			p.fillRect(wall.rect(), shade);
+		}
+		wall.setDevicePixelRatio(ratio);
+		_wallPix = QPixmap::fromImage(wall);
+		// Logical-size copies used by the glass painters.
+		_wall = MakeWall(QSize(kStudioWidth, kStudioHeight));
+		_blur = BlurImage(_wall);
+
+		buildItems();
+		_state->status.value() | rpl::on_next([=](const QString &) {
+			update();
+		}, lifetime());
+	}
+
+protected:
+	void paintEvent(QPaintEvent *e) override {
+		auto p = QPainter(this);
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setRenderHint(QPainter::SmoothPixmapTransform);
+		auto clip = QPainterPath();
+		clip.addRoundedRect(QRectF(rect()), st::boxRadius, st::boxRadius);
+		p.setClipPath(clip);
+		p.drawPixmap(0, 0, _wallPix);
+
+		ensurePanel();
+		p.drawPixmap(0, 0, _panelPix);
+
+		paintHeader(p);
+		paintSpectrum(p);
+		for (auto i = 0; i != int(_items.size()); ++i) {
+			paintItem(p, i);
+		}
+	}
+
+	void mousePressEvent(QMouseEvent *e) override {
+		if (e->button() != Qt::LeftButton) {
+			return;
+		}
+		const auto index = itemAt(e->pos());
+		if (index < 0) {
+			return;
+		}
+		auto &item = _items[index];
+		switch (item.kind) {
+		case Kind::Toggle:
+			*item.flag = !*item.flag;
+			_state->dirty = true;
+			break;
+		case Kind::Slider:
+		case Kind::Eq:
+			_drag = index;
+			setFromPosition(item, e->pos());
+			break;
+		default:
+			_pressed = index;
+			break;
+		}
+		update();
+	}
+
+	void mouseMoveEvent(QMouseEvent *e) override {
+		if (_drag >= 0) {
+			setFromPosition(_items[_drag], e->pos());
+		}
+		const auto over = itemAt(e->pos());
+		if (over != _hover) {
+			_hover = over;
+			setCursor((over >= 0)
+				? Qt::PointingHandCursor
+				: Qt::ArrowCursor);
+		}
+		update();
+	}
+
+	void mouseReleaseEvent(QMouseEvent *e) override {
+		const auto pressed = std::exchange(_pressed, -1);
+		_drag = -1;
+		if (pressed >= 0 && itemAt(e->pos()) == pressed) {
+			const auto &action = _items[pressed].action;
+			if (action) {
+				action();
+			}
+		}
+		update();
+	}
+
+	void leaveEvent(QEvent *e) override {
+		_hover = -1;
+		update();
+	}
+
+private:
+	enum class Kind { Toggle, Slider, Eq, Button, Primary, Close };
+	struct Item {
+		Kind kind = Kind::Button;
+		QRect rect;
+		QString title;
+		bool *flag = nullptr;
+		float *value = nullptr;
+		float min = 0.f;
+		float max = 1.f;
+		QString unit;
+		Fn<void()> action;
+	};
+
+	void buildItems() {
+		auto &p = _state->params;
+		const auto left = 36;
+		const auto width = kStudioWidth - 2 * left;
+		_items.push_back({
+			.kind = Kind::Close,
+			.rect = QRect(kStudioWidth - 70, 30, 32, 32),
+			.action = _callbacks.close,
+		});
+		struct Toggle {
+			const char *title;
+			bool *flag;
+		};
+		const Toggle toggles[] = {
+			{ "Karaoke", &p.karaoke },
+			{ "Bass boost", &p.bass },
+			{ "8D audio", &p.eight },
+			{ "Echo", &p.echo },
+			{ "Reverb", &p.reverb },
+			{ "Slow", &p.slow },
+			{ "Nightcore", &p.nightcore },
+		};
+		const auto chipWidth = (width - 10) / 2;
+		for (auto i = 0; i != 7; ++i) {
+			_items.push_back({
+				.kind = Kind::Toggle,
+				.rect = QRect(
+					left + (i % 2) * (chipWidth + 10),
+					158 + (i / 2) * 44,
+					chipWidth,
+					38),
+				.title = QString::fromUtf8(toggles[i].title),
+				.flag = toggles[i].flag,
+			});
+		}
+		struct Slider {
+			const char *title;
+			float *value;
+			float min;
+			float max;
+			const char *unit;
+		};
+		const Slider sliders[] = {
+			{ "Bass", &p.bassDb, 0.f, 18.f, " dB" },
+			{ "8D tezligi", &p.eightHz, 0.05f, 0.6f, " Hz" },
+			{ "Echo vaqti", &p.echoTime, 0.1f, 1.f, " s" },
+			{ "Reverb", &p.reverbMix, 0.f, 1.f, "" },
+		};
+		for (auto i = 0; i != 4; ++i) {
+			_items.push_back({
+				.kind = Kind::Slider,
+				.rect = QRect(left, 338 + i * 38, width, 34),
+				.title = QString::fromUtf8(sliders[i].title),
+				.value = sliders[i].value,
+				.min = sliders[i].min,
+				.max = sliders[i].max,
+				.unit = QString::fromUtf8(sliders[i].unit),
+			});
+		}
+		const auto eqWidth = width / 5;
+		for (auto i = 0; i != 5; ++i) {
+			_items.push_back({
+				.kind = Kind::Eq,
+				.rect = QRect(left + i * eqWidth, 516, eqWidth, 78),
+				.title = QString::fromLatin1(kEqTitles[i]),
+				.value = &p.eq[i],
+				.min = -12.f,
+				.max = 12.f,
+				.unit = u" dB"_q,
+			});
+		}
+		const auto half = (width - 10) / 2;
+		_items.push_back({
+			.kind = Kind::Button,
+			.rect = QRect(left, 606, half, 42),
+			.title = u"Eshitib ko'rish"_q,
+			.action = _callbacks.preview,
+		});
+		_items.push_back({
+			.kind = Kind::Button,
+			.rect = QRect(left + half + 10, 606, half, 42),
+			.title = u"Ulashish"_q,
+			.action = _callbacks.share,
+		});
+		_items.push_back({
+			.kind = Kind::Primary,
+			.rect = QRect(left, 656, width, 46),
+			.title = u"Saved Messages'ga yuklash"_q,
+			.action = _callbacks.save,
+		});
+	}
+
+	[[nodiscard]] int itemAt(QPoint point) const {
+		for (auto i = int(_items.size()) - 1; i >= 0; --i) {
+			if (_items[i].rect.contains(point)) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	[[nodiscard]] QRect trackRect(const Item &item) const {
+		if (item.kind == Kind::Eq) {
+			return QRect(
+				item.rect.center().x() - 4,
+				item.rect.top() + 4,
+				8,
+				item.rect.height() - 34);
+		}
+		return QRect(item.rect.left() + 4, item.rect.top() + 22, item.rect.width() - 8, 8);
+	}
+
+	[[nodiscard]] float fraction(const Item &item) const {
+		return std::clamp(
+			(*item.value - item.min) / (item.max - item.min),
+			0.f,
+			1.f);
+	}
+
+	void setFromPosition(const Item &item, QPoint point) {
+		const auto track = trackRect(item);
+		auto frac = 0.f;
+		if (item.kind == Kind::Eq) {
+			frac = 1.f - std::clamp(
+				float(point.y() - track.top()) / track.height(),
+				0.f,
+				1.f);
+		} else {
+			frac = std::clamp(
+				float(point.x() - track.left()) / track.width(),
+				0.f,
+				1.f);
+		}
+		*item.value = item.min + frac * (item.max - item.min);
+		if (item.kind == Kind::Eq && std::abs(*item.value) < 0.6f) {
+			*item.value = 0.f; // Snap to flat.
+		}
+		_state->dirty = true;
+	}
+
+	[[nodiscard]] QColor accent() const {
+		return st::windowBgActive->c;
+	}
+
+	// The user's chat liquid glass when it is on; otherwise our own glass.
+	void paintGlass(QPainter &p, const QRect &r, qreal radius, bool strong) {
+		if (r.width() < 4 || r.height() < 4) {
+			return;
+		}
+		if (const auto level = Paradoks::GlassBubbleLevel()) {
+			Ui::PaintGlassRounded(
+				p,
+				r,
+				radius,
+				level,
+				_wall,
+				QPoint(),
+				strong ? 0 : 1);
+			return;
+		}
+		const auto rect = QRectF(r);
+		radius = std::min(radius, std::min(rect.width(), rect.height()) / 2.);
+		auto path = QPainterPath();
+		path.addRoundedRect(rect, radius, radius);
+		p.save();
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setClipPath(path);
+		p.drawImage(r, _blur, r);
+		auto fill = QLinearGradient(rect.topLeft(), rect.bottomRight());
+		fill.setColorAt(0., QColor(255, 255, 255, strong ? 60 : 70));
+		fill.setColorAt(1., QColor(255, 255, 255, strong ? 20 : 18));
+		p.fillRect(rect, fill);
+		if (strong) {
+			auto tint = accent();
+			tint.setAlpha(95);
+			p.fillRect(rect, tint);
+		}
+		const auto band = QRectF(
+			rect.left(),
+			rect.top(),
+			rect.width(),
+			rect.height() * 0.45);
+		auto specular = QLinearGradient(band.topLeft(), band.bottomLeft());
+		specular.setColorAt(0., QColor(255, 255, 255, 70));
+		specular.setColorAt(1., QColor(255, 255, 255, 0));
+		p.fillRect(band, specular);
+		p.restore();
+		auto rim = QLinearGradient(rect.topLeft(), rect.bottomRight());
+		rim.setColorAt(0., QColor(255, 255, 255, 200));
+		rim.setColorAt(0.5, QColor(255, 255, 255, 70));
+		rim.setColorAt(1., QColor(255, 255, 255, 120));
+		p.save();
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(QBrush(rim), 1.4));
+		p.drawRoundedRect(
+			rect.adjusted(0.7, 0.7, -0.7, -0.7),
+			radius,
+			radius);
+		p.restore();
+	}
+
+	void paintKnob(QPainter &p, const QRect &r) {
+		if (Paradoks::GlassBubbleLevel()) {
+			Ui::PaintGlassCircle(p, r);
+		} else {
+			paintGlass(p, r, r.width() / 2., false);
+			p.save();
+			p.setRenderHint(QPainter::Antialiasing);
+			p.setPen(Qt::NoPen);
+			p.setBrush(QColor(255, 255, 255, 70));
+			p.drawEllipse(r);
+			p.restore();
+		}
+	}
+
+	void ensurePanel() {
+		const auto ratio = devicePixelRatioF();
+		const auto size = QSize(
+			int(std::round(kStudioWidth * ratio)),
+			int(std::round(kStudioHeight * ratio)));
+		if (_panelPix.size() == size
+			&& _panelLevel == Paradoks::GlassBubbleLevel()) {
+			return;
+		}
+		_panelLevel = Paradoks::GlassBubbleLevel();
+		_panelPix = QPixmap(size);
+		_panelPix.fill(Qt::transparent);
+		_panelPix.setDevicePixelRatio(ratio);
+		auto p = QPainter(&_panelPix);
+		p.setRenderHint(QPainter::Antialiasing);
+		paintGlass(p, QRect(14, 14, kStudioWidth - 28, kStudioHeight - 28), 30, false);
+	}
+
+	void paintHeader(QPainter &p) {
+		const auto center = QPointF(58., 56.);
+		p.save();
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setBrush(Qt::NoBrush);
+		const auto light = QColor(255, 255, 255, 235);
+		p.setPen(QPen(light, 2.4));
+		p.drawEllipse(center, 19., 19.);
+		p.setPen(QPen(QColor(255, 255, 255, 130), 2.));
+		p.drawEllipse(center, 11.5, 11.5);
+		p.setPen(QPen(light, 2.));
+		p.drawEllipse(center, 4.5, 4.5);
+		p.setPen(Qt::NoPen);
+		p.setBrush(light);
+		p.drawEllipse(center, 1.6, 1.6);
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(accent().lighter(150), 2.6, Qt::SolidLine, Qt::RoundCap));
+		p.drawArc(QRectF(center.x() - 15., center.y() - 15., 30., 30.), 90 * 16, -90 * 16);
+		p.restore();
+
+		p.setPen(Qt::white);
+		p.setFont(StudioFont(20, true));
+		p.drawText(QRect(92, 30, kStudioWidth - 92 - 80, 26), Qt::AlignLeft | Qt::AlignVCenter, u"Musiqiy ijodxona"_q);
+		const auto small = StudioFont(13);
+		p.setFont(small);
+		p.setPen(QColor(255, 255, 255, 225));
+		p.drawText(
+			QRect(92, 58, kStudioWidth - 92 - 40, 18),
+			Qt::AlignLeft | Qt::AlignVCenter,
+			QFontMetrics(small).elidedText(
+				_state->name,
+				Qt::ElideRight,
+				kStudioWidth - 92 - 40));
+		p.setFont(StudioFont(12));
+		p.setPen(QColor(255, 255, 255, 150));
+		p.drawText(
+			QRect(92, 77, kStudioWidth - 92 - 40, 16),
+			Qt::AlignLeft | Qt::AlignVCenter,
+			_state->status.current());
+	}
+
+	void paintSpectrum(QPainter &p) {
+		const auto &bars = _state->spectrum;
+		const auto left = 36;
+		const auto width = kStudioWidth - 2 * left;
+		const auto count = 28;
+		const auto step = width / float(count);
+		const auto base = 148.f;
+		const auto color = accent().lighter(135);
+		p.save();
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setPen(Qt::NoPen);
+		for (auto i = 0; i != count; ++i) {
+			const auto value = (i < int(bars.size())) ? bars[i] : 0.f;
+			const auto h = 6.f + value * 40.f;
+			const auto x = left + i * step + 2.f;
+			const auto bar = QRectF(x, base - h, step - 4.f, h);
+			auto fill = QLinearGradient(bar.topLeft(), bar.bottomLeft());
+			auto top = color;
+			top.setAlpha(235);
+			auto bottom = color;
+			bottom.setAlpha(80);
+			fill.setColorAt(0., top);
+			fill.setColorAt(1., bottom);
+			p.setBrush(fill);
+			p.drawRoundedRect(bar, (step - 4.f) / 2., (step - 4.f) / 2.);
+		}
+		p.restore();
+	}
+
+	void paintItem(QPainter &p, int index) {
+		const auto &item = _items[index];
+		const auto hover = (_hover == index);
+		const auto r = item.rect;
+		p.save();
+		p.setRenderHint(QPainter::Antialiasing);
+		switch (item.kind) {
+		case Kind::Close: {
+			paintKnob(p, r);
+			p.setPen(QPen(Qt::white, 2., Qt::SolidLine, Qt::RoundCap));
+			const auto c = QPointF(r.center()) + QPointF(0.5, 0.5);
+			p.drawLine(c + QPointF(-5, -5), c + QPointF(5, 5));
+			p.drawLine(c + QPointF(-5, 5), c + QPointF(5, -5));
+		} break;
+		case Kind::Toggle: {
+			const auto on = *item.flag;
+			paintGlass(p, r, r.height() / 2., on);
+			p.setFont(StudioFont(14, on));
+			p.setPen(Qt::white);
+			p.drawText(
+				QRect(r.left() + 18, r.top(), r.width() - 80, r.height()),
+				Qt::AlignLeft | Qt::AlignVCenter,
+				item.title);
+			const auto cap = QRect(r.right() - 50, r.center().y() - 10, 38, 20);
+			paintGlass(p, cap, 10, on);
+			p.setPen(Qt::NoPen);
+			p.setBrush(QColor(255, 255, 255, on ? 250 : 190));
+			p.drawEllipse(QRectF(
+				on ? cap.right() - 18. : cap.left() + 2.,
+				cap.top() + 2.,
+				16.,
+				16.));
+		} break;
+		case Kind::Slider:
+		case Kind::Eq: {
+			const auto track = trackRect(item);
+			const auto frac = fraction(item);
+			if (item.kind == Kind::Slider) {
+				p.setFont(StudioFont(13));
+				p.setPen(QColor(255, 255, 255, 225));
+				p.drawText(
+					QRect(r.left() + 4, r.top(), r.width() / 2, 18),
+					Qt::AlignLeft | Qt::AlignVCenter,
+					item.title);
+				p.setFont(StudioFont(13, true));
+				p.setPen(Qt::white);
+				p.drawText(
+					QRect(r.center().x(), r.top(), r.width() / 2 - 4, 18),
+					Qt::AlignRight | Qt::AlignVCenter,
+					QString::number(*item.value, 'f', 2) + item.unit);
+				paintGlass(p, track, 4, false);
+				const auto fillWidth = std::max(8, int(track.width() * frac));
+				paintGlass(p, QRect(track.left(), track.top(), fillWidth, 8), 4, true);
+				paintKnob(p, QRect(
+					track.left() + int(track.width() * frac) - 11,
+					track.center().y() - 11,
+					22,
+					22));
+			} else {
+				paintGlass(p, track, 4, false);
+				const auto knobY = track.bottom() - int(track.height() * frac);
+				const auto zero = track.bottom() - track.height() / 2;
+				const auto top = std::min(knobY, zero);
+				const auto height = std::max(8, std::abs(knobY - zero));
+				paintGlass(p, QRect(track.left(), top, 8, height), 4, true);
+				paintKnob(p, QRect(track.center().x() - 10, knobY - 10, 20, 20));
+				p.setFont(StudioFont(11));
+				p.setPen(QColor(255, 255, 255, 200));
+				p.drawText(
+					QRect(r.left(), r.bottom() - 26, r.width(), 13),
+					Qt::AlignHCenter | Qt::AlignVCenter,
+					item.title);
+				p.setPen(Qt::white);
+				p.drawText(
+					QRect(r.left(), r.bottom() - 13, r.width(), 13),
+					Qt::AlignHCenter | Qt::AlignVCenter,
+					QString::number(int(std::round(*item.value))));
+			}
+		} break;
+		case Kind::Button:
+		case Kind::Primary: {
+			const auto primary = (item.kind == Kind::Primary);
+			paintGlass(p, r, r.height() / 2., primary);
+			p.setFont(StudioFont(primary ? 15 : 14, primary));
+			p.setPen(Qt::white);
+			p.drawText(r, Qt::AlignCenter, item.title);
+		} break;
+		}
+		if (hover && item.kind != Kind::Slider && item.kind != Kind::Eq) {
+			p.setPen(Qt::NoPen);
+			p.setBrush(QColor(255, 255, 255, (_pressed == index) ? 40 : 22));
+			p.drawRoundedRect(
+				QRectF(r),
+				(item.kind == Kind::Close) ? r.width() / 2. : r.height() / 2.,
+				(item.kind == Kind::Close) ? r.width() / 2. : r.height() / 2.);
+		}
+		p.restore();
+	}
+
+	const std::shared_ptr<State> _state;
+	const Callbacks _callbacks;
+	std::vector<Item> _items;
+	QPixmap _wallPix;
+	QPixmap _panelPix;
+	QImage _wall;
+	QImage _blur;
+	int _panelLevel = -1;
+	int _hover = -1;
+	int _pressed = -1;
+	int _drag = -1;
+
+};
+
 void LabBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller,
 		const QString &path,
 		const QString &name) {
-	box->setTitle(rpl::single(u"Musiqiy ijodxona"_q));
+	box->setNoContentMargin(true);
+	box->setWidth(kStudioWidth);
 	const auto state = std::make_shared<State>();
 	state->path = path;
 	state->name = name;
@@ -674,78 +1305,13 @@ void LabBox(
 	const auto session = &controller->session();
 	const auto weak = base::make_weak(controller);
 
-	box->addRow(
-		object_ptr<Ui::FlatLabel>(box, rpl::single(name), st::boxLabel),
-		st::boxRowPadding);
-	box->addRow(
-		object_ptr<Ui::FlatLabel>(box, state->status.value(), st::boxLabel),
-		st::boxRowPadding);
-
-	const auto markDirty = [=] {
-		state->dirty = true;
-	};
-	const auto addToggle = [&](const QString &title, bool *flag) {
-		const auto check = box->addRow(
-			object_ptr<Ui::Checkbox>(box, title, *flag, st::defaultBoxCheckbox),
-			st::boxRowPadding);
-		check->checkedChanges() | rpl::on_next([=](bool value) {
-			*flag = value;
-			markDirty();
-		}, check->lifetime());
-	};
-	const auto addSlider = [&](
-			const QString &title,
-			float min,
-			float max,
-			float *value,
-			const QString &unit) {
-		const auto label = box->addRow(
-			object_ptr<Ui::FlatLabel>(box, rpl::single(QString()), st::boxLabel),
-			st::boxRowPadding);
-		const auto text = [=] {
-			label->setText(
-				title + u": "_q + QString::number(*value, 'f', 2) + unit);
-		};
-		text();
-		const auto slider = box->addRow(
-			object_ptr<Ui::MediaSlider>(box, st::settingsScale),
-			st::boxRowPadding);
-		slider->resize(slider->width(), st::settingsScale.seekSize.height());
-		slider->setValue((*value - min) / (max - min));
-		slider->setChangeProgressCallback([=](float64 progress) {
-			*value = min + float(progress) * (max - min);
-			text();
-			markDirty();
-		});
-	};
-
-	auto &p = state->params;
-	addToggle(u"Karaoke (ovozni kamaytirish)"_q, &p.karaoke);
-	addToggle(u"Bass boost"_q, &p.bass);
-	addToggle(u"8D audio"_q, &p.eight);
-	addToggle(u"Echo"_q, &p.echo);
-	addToggle(u"Reverb"_q, &p.reverb);
-	addToggle(u"Slow (sekinlashtirish)"_q, &p.slow);
-	addToggle(u"Nightcore (tezlashtirish)"_q, &p.nightcore);
-	addSlider(u"Bass"_q, 0.f, 18.f, &p.bassDb, u" dB"_q);
-	addSlider(u"8D tezligi"_q, 0.05f, 0.6f, &p.eightHz, u" Hz"_q);
-	addSlider(u"Echo vaqti"_q, 0.1f, 1.f, &p.echoTime, u" s"_q);
-	addSlider(u"Reverb"_q, 0.f, 1.f, &p.reverbMix, QString());
-	for (auto i = 0; i != 5; ++i) {
-		addSlider(
-			u"Equalizer "_q + QString::fromLatin1(kEqTitles[i]),
-			-12.f,
-			12.f,
-			&p.eq[i],
-			u" dB"_q);
-	}
-
 	// Decode in the background.
 	crl::async([=] {
 		auto pcm = Pcm();
 		const auto ok = Decode(state->path, pcm, state->cancel);
 		auto bpm = ok ? EstimateBpm(pcm) : 0;
-		crl::on_main([=, pcm = std::move(pcm)]() mutable {
+		auto spectrum = ok ? MakeSpectrum(pcm) : std::vector<float>();
+		crl::on_main([=, pcm = std::move(pcm), spectrum = std::move(spectrum)]() mutable {
 			if (state->closed) {
 				return;
 			}
@@ -754,6 +1320,7 @@ void LabBox(
 				return;
 			}
 			state->pcm = std::move(pcm);
+			state->spectrum = std::move(spectrum);
 			state->bpm = bpm;
 			state->loaded = true;
 			state->status = u"Tayyor: "_q
@@ -823,19 +1390,20 @@ void LabBox(
 		});
 	};
 
-	box->addLeftButton(rpl::single(u"Eshitib ko'rish"_q), [=] {
+	auto callbacks = GlassStudio::Callbacks();
+	callbacks.preview = [=] {
 		render(true, [=](QString file) {
 			File::Launch(file);
 		});
-	});
-	box->addButton(rpl::single(u"Saved Messages'ga yuklash"_q), [=] {
+	};
+	callbacks.save = [=] {
 		render(false, [=](QString file) {
 			const auto history = session->data().history(session->userPeerId());
 			SendFile(session, history, file, u"🎧 "_q + Describe(state->params));
 			box->showToast(u"Saved Messages'ga yuborildi"_q);
 		});
-	});
-	box->addButton(rpl::single(u"Ulashish"_q), [=] {
+	};
+	callbacks.share = [=] {
 		render(false, [=](QString file) {
 			const auto strong = weak.get();
 			if (!strong) {
@@ -850,7 +1418,13 @@ void LabBox(
 				},
 				rpl::single(u"Ulashish uchun chatni tanlang"_q));
 		});
-	});
+	};
+	callbacks.close = [=] {
+		box->closeBox();
+	};
+	box->addRow(
+		object_ptr<GlassStudio>(box, state, std::move(callbacks)),
+		style::margins());
 }
 
 [[nodiscard]] bool IsAvailable(not_null<DocumentData*> document) {

@@ -139,6 +139,17 @@ void PaintGlassBubble(
 	QPoint backdropTopLeft = QPoint(),
 	int role = 0); // 0 - sent, 1 - received, 2 - deleted
 
+// ParadoksGram: the same liquid glass with an explicit corner radius
+// (pills, panels); role is as in PaintGlassBubble.
+void PaintGlassRounded(
+	QPainter &p,
+	const QRect &geometry,
+	qreal radius,
+	int level,
+	const QImage &backdrop = QImage(),
+	QPoint backdropTopLeft = QPoint(),
+	int role = 0);
+
 // ParadoksGram: a clear glass disc for round buttons.
 void PaintGlassCircle(QPainter &p, const QRect &rect);
 
