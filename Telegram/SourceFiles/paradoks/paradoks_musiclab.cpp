@@ -1561,7 +1561,7 @@ private:
 		add(
 			Kind::Button,
 			QRect(left, 412, width, 46),
-			u"WAV qilib saqlash (Yuklamalar papkasi)"_q,
+			u"WAV saqlash va Saved Messages'ga yuborish"_q,
 			3).action = _callbacks.exportWav;
 		add(
 			Kind::Primary,
@@ -2264,7 +2264,9 @@ void LabBox(
 	callbacks.exportWav = [=] {
 		render(true, [=](QString file) {
 			File::ShowInFolder(file);
-			box->showToast(u"WAV Yuklamalar papkasiga saqlandi"_q);
+			const auto history = session->data().history(session->userPeerId());
+			SendFile(session, history, file, u"🎧 "_q + Describe(state->params));
+			box->showToast(u"WAV saqlandi va Saved Messages'ga yuborildi"_q);
 		});
 	};
 	callbacks.save = [=] {

@@ -8,6 +8,13 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.44.1 (11-noyabr)
+Musiqiy ijodxona: eksport Saved Messages'ga ham tushadi
+Tayyorlangan WAV endi Saved Messages'ga ham yuboriladi
+
+O'zgardi:
+- "WAV saqlash" tugmasi faylni Yuklamalar papkasiga saqlaydi va bir vaqtda Saved Messages'ga ham yuboradi.
+
 ## 1.44.0 (10-noyabr)
 Musiqiy ijodxona: jonli ijro, A-B takror, vizualizator
 Musiqiy ijodxona Android'dagidek jonli ishlaydi
