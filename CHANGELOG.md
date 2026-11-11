@@ -8,6 +8,22 @@ Versiya formati Telegram kabi: `MAJOR.MINOR.PATCH`, qavs ichida build raqami (ma
 
 Versiya raqami `VERSION` faylida turadi. Har versiya uchun foydalanuvchiga ko'rinadigan matn `changelog/<versiya>.md` fayliga yoziladi: CI shuni reliz matniga qo'yadi. Commit xabari reliz matniga tushmaydi.
 
+## 1.44.0 (10-noyabr)
+Musiqiy ijodxona: jonli ijro, A-B takror, vizualizator
+Musiqiy ijodxona Android'dagidek jonli ishlaydi
+
+Yangi:
+- Jonli ijro: trek ochilishi bilan chalinadi, effektlar (Karaoke, Bass, 8D, Echo, Reverb, Slow, Nightcore, equalizer) sozlanganda darhol eshitiladi. Avvalgidek 30 soniyalik namuna tayyorlash va tashqi pleyerni ochish kerak emas.
+- Pleyer boshqaruvi: ijro/pauza, ±10 soniya, suriladigan vaqt chizig'i, ovoz balandligi, takror (loop) va A-B oraliqni takrorlash.
+- Equalizer: 5 polosa va tayyor sozlamalar (Tekis, Bass+, Vokal, Yuqori+, Rok, Pop).
+- Jonli vizualizator: musiqa bilan birga harakatlanadigan spektr. 4 uslub (ustunlar, ko'zgu, to'lqin, nuqtalar) va 5 rang (kamalak ham bor).
+- Bo'limlar (Effektlar, Equalizer, Vizualizer, Eksport) bilan qulay joylashuv, oyna kengaytirildi.
+- Eksport: WAV qilib Yuklamalar papkasiga saqlash va papkada ko'rsatish, Saved Messages'ga yuklash, boshqa chatga ulashish.
+- Hammasi liquid glass ko'rinishida: chat uchun tanlangan shisha sozlamalariga ergashadi, o'chiq bo'lsa o'zining shishasi ishlaydi.
+
+O'zgardi:
+- Studiya o'z hisobidan tezroq chiziladi: faqat o'zgargan joylar qayta chiziladi.
+
 ## 1.43.4 (10-noyabr)
 Musiqiy ijodxona build xatosi tuzatildi
 Musiqiy ijodxona oynasidagi sichqoncha chiqishi tuzatildi

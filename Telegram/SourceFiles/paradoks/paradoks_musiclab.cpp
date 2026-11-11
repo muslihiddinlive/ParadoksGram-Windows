@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_common.h"
 #include "apiwrap.h"
 #include "base/call_delayed.h"
+#include "base/timer.h"
 #include "core/file_utilities.h"
 #include "data/data_document.h"
 #include "data/data_document_media.h"
@@ -56,13 +57,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <cmath>
 #include <memory>
 #include <vector>
+#include <array>
+#include <mutex>
+#include <thread>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
+#endif // Q_OS_WIN
 
 namespace Paradoks::MusicLab {
 namespace {
 
 constexpr auto kRate = 44100;
 constexpr auto kMaxSeconds = 15 * 60;
-constexpr auto kPreviewSeconds = 30;
 constexpr auto kPi = 3.14159265358979323846f;
 
 struct Pcm {
@@ -650,12 +658,346 @@ void SendFile(
 		Api::SendAction(thread));
 }
 
+// ---- Live playback engine (Windows waveOut): effects are heard at once ----
+
+constexpr auto kBands = 28;
+
+#ifdef Q_OS_WIN
+constexpr auto kEngineFrames = 2048;
+constexpr auto kEngineBuffers = 4;
+
+class Engine {
+public:
+	explicit Engine(const Pcm *pcm)
+	: _pcm(pcm) {
+		for (auto &band : _bands) {
+			band.store(0.f);
+		}
+		if (!_pcm || _pcm->frames() < 4) {
+			_failed = true;
+			return;
+		}
+		_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+		_thread = std::thread([this] { run(); });
+	}
+	~Engine() {
+		_stop = true;
+		if (_event) {
+			SetEvent(_event);
+		}
+		if (_thread.joinable()) {
+			_thread.join();
+		}
+		if (_event) {
+			CloseHandle(_event);
+		}
+	}
+
+	[[nodiscard]] bool failed() const {
+		return _failed.load();
+	}
+	[[nodiscard]] bool playing() const {
+		return _wantPlay.load();
+	}
+	void setPlaying(bool value) {
+		_wantPlay = value;
+		wake();
+	}
+	void setParams(const Params &params) {
+		auto guard = std::lock_guard(_mutex);
+		_params = params;
+		++_paramsVersion;
+	}
+	void setVolume(float value) {
+		_volume = value;
+	}
+	void setLoop(bool value) {
+		_loop = value;
+	}
+	// Frames in the source; a negative value means "not set".
+	void setLoopPoints(double from, double till) {
+		_loopA = from;
+		_loopB = till;
+	}
+	void seek(double frames) {
+		_seekReq = std::max(0., frames);
+		wake();
+	}
+	[[nodiscard]] double position() const {
+		return _shown.load();
+	}
+	[[nodiscard]] float band(int index) const {
+		return _bands[index].load();
+	}
+
+private:
+	struct Buffer {
+		std::vector<qint16> data;
+		WAVEHDR header = {};
+		double startPos = 0.;
+		int64 seq = 0;
+		bool queued = false;
+	};
+
+	void wake() {
+		if (_event) {
+			SetEvent(_event);
+		}
+	}
+
+	void run() {
+		auto format = WAVEFORMATEX();
+		format.wFormatTag = WAVE_FORMAT_PCM;
+		format.nChannels = 2;
+		format.nSamplesPerSec = kRate;
+		format.wBitsPerSample = 16;
+		format.nBlockAlign = 4;
+		format.nAvgBytesPerSec = kRate * 4;
+		auto device = HWAVEOUT();
+		if (waveOutOpen(
+				&device,
+				WAVE_MAPPER,
+				&format,
+				reinterpret_cast<DWORD_PTR>(_event),
+				0,
+				CALLBACK_EVENT) != MMSYSERR_NOERROR) {
+			_failed = true;
+			return;
+		}
+		waveOutPause(device);
+		for (auto &buffer : _buffers) {
+			buffer.data.assign(size_t(kEngineFrames) * 2, 0);
+			buffer.header = WAVEHDR();
+			buffer.header.lpData = reinterpret_cast<LPSTR>(buffer.data.data());
+			buffer.header.dwBufferLength = DWORD(
+				buffer.data.size() * sizeof(qint16));
+			waveOutPrepareHeader(device, &buffer.header, sizeof(WAVEHDR));
+		}
+
+		auto chain = std::unique_ptr<Chain>();
+		auto speed = 1.f;
+		auto appliedVersion = -1;
+		auto counter = int64(0);
+		auto sequence = int64(0);
+		auto devicePlaying = false;
+		auto ending = false;
+		while (!_stop.load()) {
+			WaitForSingleObject(_event, 20);
+			if (_stop.load()) {
+				break;
+			}
+			const auto seekTo = _seekReq.exchange(-1.);
+			if (seekTo >= 0.) {
+				waveOutReset(device);
+				waveOutPause(device);
+				devicePlaying = false;
+				for (auto &buffer : _buffers) {
+					buffer.queued = false;
+				}
+				_pos = std::clamp(
+					seekTo,
+					0.,
+					double(_pcm->frames() - 2));
+				_shown = _pos;
+				ending = false;
+			}
+			const auto want = _wantPlay.load();
+			if (want != devicePlaying) {
+				if (want) {
+					waveOutRestart(device);
+				} else {
+					waveOutPause(device);
+				}
+				devicePlaying = want;
+			}
+			{
+				auto guard = std::lock_guard(_mutex);
+				if (appliedVersion != _paramsVersion || !chain) {
+					appliedVersion = _paramsVersion;
+					speed = _params.speed();
+					chain = std::make_unique<Chain>(_params);
+				}
+			}
+			auto drained = true;
+			for (auto &buffer : _buffers) {
+				if (buffer.queued
+					&& !(buffer.header.dwFlags & WHDR_DONE)) {
+					drained = false;
+					continue;
+				}
+				buffer.queued = false;
+				if (ending) {
+					continue;
+				}
+				if (fill(buffer, *chain, speed, counter)) {
+					ending = true;
+				}
+				buffer.seq = ++sequence;
+				waveOutWrite(device, &buffer.header, sizeof(WAVEHDR));
+				buffer.queued = true;
+				drained = false;
+			}
+			if (ending && drained) {
+				// The track is over and everything has been heard.
+				ending = false;
+				_wantPlay = false;
+				_seekReq = 0.;
+				continue;
+			}
+			auto oldest = static_cast<const Buffer*>(nullptr);
+			for (const auto &buffer : _buffers) {
+				if (buffer.queued
+					&& !(buffer.header.dwFlags & WHDR_DONE)
+					&& (!oldest || buffer.seq < oldest->seq)) {
+					oldest = &buffer;
+				}
+			}
+			_shown = oldest ? oldest->startPos : _pos;
+			if (!devicePlaying) {
+				for (auto &band : _bands) {
+					band.store(band.load() * 0.88f);
+				}
+			}
+		}
+		waveOutReset(device);
+		for (auto &buffer : _buffers) {
+			waveOutUnprepareHeader(device, &buffer.header, sizeof(WAVEHDR));
+		}
+		waveOutClose(device);
+	}
+
+	// Fills one buffer; returns true when the end of the track is reached.
+	[[nodiscard]] bool fill(
+			Buffer &buffer,
+			Chain &chain,
+			float speed,
+			int64 &counter) {
+		const auto total = _pcm->frames();
+		const auto volume = _volume.load();
+		const auto loopOn = _loop.load();
+		const auto from = _loopA.load();
+		const auto till = _loopB.load();
+		const auto section = (from >= 0.) && (till > from);
+		buffer.startPos = _pos;
+		auto ended = false;
+		auto mono = std::array<float, kEngineFrames>();
+		for (auto i = 0; i != kEngineFrames; ++i) {
+			if (!ended) {
+				if (section && _pos >= till) {
+					_pos = from;
+				} else if (_pos >= double(total - 1)) {
+					if (loopOn) {
+						_pos = 0.;
+					} else {
+						ended = true;
+					}
+				}
+			}
+			auto l = 0.f;
+			auto r = 0.f;
+			if (!ended) {
+				const auto i0 = int64(_pos);
+				const auto frac = float(_pos - double(i0));
+				const auto i1 = std::min<int64>(i0 + 1, total - 1);
+				l = _pcm->l[i0] + (_pcm->l[i1] - _pcm->l[i0]) * frac;
+				r = _pcm->r[i0] + (_pcm->r[i1] - _pcm->r[i0]) * frac;
+				chain.process(l, r, counter++);
+				l *= volume;
+				r *= volume;
+				_pos += speed;
+			}
+			mono[i] = (l + r) * 0.5f;
+			buffer.data[size_t(i) * 2] = qint16(
+				std::clamp(l, -1.f, 1.f) * 32767.f);
+			buffer.data[size_t(i) * 2 + 1] = qint16(
+				std::clamp(r, -1.f, 1.f) * 32767.f);
+		}
+		analyze(mono.data(), kEngineFrames);
+		return ended;
+	}
+
+	// Goertzel filters on log-spaced frequencies: a cheap live spectrum.
+	void analyze(const float *mono, int count) {
+		constexpr auto kLow = 50.f;
+		constexpr auto kHigh = 14000.f;
+		for (auto k = 0; k != kBands; ++k) {
+			const auto freq = kLow
+				* std::pow(kHigh / kLow, k / float(kBands - 1));
+			const auto coeff = 2.f * std::cos(2.f * kPi * freq / kRate);
+			auto s1 = 0.f;
+			auto s2 = 0.f;
+			for (auto i = 0; i != count; ++i) {
+				const auto s = mono[i] + coeff * s1 - s2;
+				s2 = s1;
+				s1 = s;
+			}
+			const auto power = s1 * s1 + s2 * s2 - coeff * s1 * s2;
+			const auto amplitude = std::sqrt(std::max(0.f, power))
+				/ (count * 0.5f);
+			const auto db = 20.f * std::log10(amplitude + 1e-6f);
+			const auto value = std::clamp((db + 62.f) / 48.f, 0.f, 1.f);
+			_bands[k].store(std::max(value, _bands[k].load() * 0.82f));
+		}
+	}
+
+	const Pcm *_pcm = nullptr;
+	HANDLE _event = nullptr;
+	std::thread _thread;
+	std::atomic<bool> _stop = false;
+	std::atomic<bool> _failed = false;
+	std::atomic<bool> _wantPlay = false;
+	std::atomic<bool> _loop = false;
+	std::atomic<float> _volume = 0.9f;
+	std::atomic<double> _loopA = -1.;
+	std::atomic<double> _loopB = -1.;
+	std::atomic<double> _seekReq = -1.;
+	std::atomic<double> _shown = 0.;
+	std::atomic<float> _bands[kBands];
+	std::mutex _mutex;
+	Params _params;
+	int _paramsVersion = 0;
+	double _pos = 0.;
+	Buffer _buffers[kEngineBuffers];
+
+};
+#else // Q_OS_WIN
+class Engine {
+public:
+	explicit Engine(const Pcm *) {
+	}
+	[[nodiscard]] bool failed() const {
+		return true;
+	}
+	[[nodiscard]] bool playing() const {
+		return false;
+	}
+	void setPlaying(bool) {
+	}
+	void setParams(const Params &) {
+	}
+	void setVolume(float) {
+	}
+	void setLoop(bool) {
+	}
+	void setLoopPoints(double, double) {
+	}
+	void seek(double) {
+	}
+	[[nodiscard]] double position() const {
+		return 0.;
+	}
+	[[nodiscard]] float band(int) const {
+		return 0.f;
+	}
+
+};
+#endif // Q_OS_WIN
+
 struct State {
 	QString path;
 	QString name;
 	Pcm pcm;
 	Params params;
-	std::vector<float> spectrum;
 	int bpm = 0;
 	bool loaded = false;
 	bool busy = false;
@@ -664,40 +1006,21 @@ struct State {
 	std::atomic<bool> cancel = false;
 	std::atomic<bool> closed = false;
 	rpl::variable<QString> status = QString();
-};
 
-[[nodiscard]] std::vector<float> MakeSpectrum(const Pcm &pcm, int bars = 28) {
-	auto result = std::vector<float>(bars, 0.f);
-	const auto total = pcm.frames();
-	if (total < bars * 64) {
-		return result;
-	}
-	const auto step = total / bars;
-	const auto stride = std::max<int64>(1, step / 2000);
-	auto peak = 0.f;
-	for (auto i = 0; i != bars; ++i) {
-		auto sum = 0.;
-		auto count = 0;
-		for (auto k = int64(i) * step; k < int64(i + 1) * step; k += stride) {
-			const auto m = (pcm.l[k] + pcm.r[k]) * 0.5f;
-			sum += double(m) * m;
-			++count;
-		}
-		result[i] = count ? float(std::sqrt(sum / count)) : 0.f;
-		peak = std::max(peak, result[i]);
-	}
-	if (peak > 0.f) {
-		for (auto &value : result) {
-			value = std::sqrt(value / peak);
-		}
-	}
-	return result;
-}
+	// Playback and look (the engine itself is created once the track is read).
+	float volume = 0.9f;
+	bool loop = false;
+	double loopA = -1.;
+	double loopB = -1.;
+	int vizStyle = 0;
+	int vizColor = 0;
+	std::unique_ptr<Engine> engine;
+};
 
 // ---- Liquid glass studio (custom painted, not a mini app) ----
 
-constexpr auto kStudioWidth = 460;
-constexpr auto kStudioHeight = 730;
+constexpr auto kStudioWidth = 500;
+constexpr auto kStudioHeight = 800;
 
 [[nodiscard]] QImage MakeWall(QSize size) {
 	auto source = QImage(u":/gui/art/paradoks_moon.jpg"_q);
@@ -719,12 +1042,12 @@ constexpr auto kStudioHeight = 730;
 }
 
 [[nodiscard]] QImage BlurImage(const QImage &src) {
-	const auto small = src.scaled(
+	const auto reduced = src.scaled(
 		std::max(2, src.width() / 9),
 		std::max(2, src.height() / 9),
 		Qt::IgnoreAspectRatio,
 		Qt::SmoothTransformation);
-	return small.scaled(
+	return reduced.scaled(
 		src.size(),
 		Qt::IgnoreAspectRatio,
 		Qt::SmoothTransformation).convertToFormat(QImage::Format_RGB32);
@@ -740,7 +1063,7 @@ constexpr auto kStudioHeight = 730;
 class GlassStudio final : public Ui::RpWidget {
 public:
 	struct Callbacks {
-		Fn<void()> preview;
+		Fn<void()> exportWav;
 		Fn<void()> share;
 		Fn<void()> save;
 		Fn<void()> close;
@@ -752,7 +1075,8 @@ public:
 		Callbacks callbacks)
 	: RpWidget(parent)
 	, _state(std::move(state))
-	, _callbacks(std::move(callbacks)) {
+	, _callbacks(std::move(callbacks))
+	, _timer([=] { tick(); }) {
 		resize(kStudioWidth, kStudioHeight);
 		setMouseTracking(true);
 		const auto ratio = devicePixelRatioF();
@@ -777,6 +1101,7 @@ public:
 		_state->status.value() | rpl::on_next([=](const QString &) {
 			update();
 		}, lifetime());
+		_timer.callEach(33);
 	}
 
 protected:
@@ -792,9 +1117,22 @@ protected:
 		ensurePanel();
 		p.drawPixmap(0, 0, _panelPix);
 
+		const auto dirty = e->rect();
 		paintHeader(p);
-		paintSpectrum(p);
+		if (dirty.intersects(_vizRect)) {
+			paintViz(p);
+		}
+		if (dirty.intersects(_seekArea)) {
+			paintTimes(p);
+		}
+		paintCaptions(p);
 		for (auto i = 0; i != int(_items.size()); ++i) {
+			if (!visible(_items[i])) {
+				continue;
+			}
+			if (!_items[i].rect.adjusted(-12, -12, 12, 12).intersects(dirty)) {
+				continue;
+			}
 			paintItem(p, i);
 		}
 	}
@@ -811,10 +1149,11 @@ protected:
 		switch (item.kind) {
 		case Kind::Toggle:
 			*item.flag = !*item.flag;
-			_state->dirty = true;
+			paramsChanged();
 			break;
 		case Kind::Slider:
 		case Kind::Eq:
+		case Kind::Seek:
 			_drag = index;
 			setFromPosition(item, e->pos());
 			break;
@@ -835,15 +1174,18 @@ protected:
 			setCursor((over >= 0)
 				? Qt::PointingHandCursor
 				: Qt::ArrowCursor);
+			update();
+		} else if (_drag >= 0) {
+			update();
 		}
-		update();
 	}
 
 	void mouseReleaseEvent(QMouseEvent *e) override {
 		const auto pressed = std::exchange(_pressed, -1);
 		_drag = -1;
+		_seeking = false;
 		if (pressed >= 0 && itemAt(e->pos()) == pressed) {
-			const auto &action = _items[pressed].action;
+			const auto action = _items[pressed].action;
 			if (action) {
 				action();
 			}
@@ -857,7 +1199,17 @@ protected:
 	}
 
 private:
-	enum class Kind { Toggle, Slider, Eq, Button, Primary, Close };
+	enum class Kind {
+		Toggle,
+		Slider,
+		Eq,
+		Seek,
+		Button,
+		Primary,
+		Close,
+		Chip,
+		Play,
+	};
 	struct Item {
 		Kind kind = Kind::Button;
 		QRect rect;
@@ -868,17 +1220,214 @@ private:
 		float max = 1.f;
 		QString unit;
 		Fn<void()> action;
+		Fn<bool()> selected;
+		Fn<QString()> label;
+		int tab = -1; // -1: always visible, otherwise only on that tab.
 	};
+
+	[[nodiscard]] Engine *engine() const {
+		return _state->engine.get();
+	}
+
+	[[nodiscard]] bool visible(const Item &item) const {
+		return (item.tab < 0) || (item.tab == _tab);
+	}
+
+	Item &add(Kind kind, QRect rect, QString title, int tab = -1) {
+		auto &item = _items.emplace_back();
+		item.kind = kind;
+		item.rect = rect;
+		item.title = std::move(title);
+		item.tab = tab;
+		return item;
+	}
+
+	void paramsChanged() {
+		_state->dirty = true;
+		if (const auto live = engine()) {
+			live->setParams(_state->params);
+			live->setVolume(_state->volume);
+		}
+	}
+
+	[[nodiscard]] double totalFrames() const {
+		return double(std::max<int64>(1, _state->pcm.frames()));
+	}
+
+	[[nodiscard]] double currentFrames() const {
+		if (_seeking) {
+			return _seekFrac * totalFrames();
+		}
+		const auto live = engine();
+		return live ? live->position() : 0.;
+	}
+
+	void togglePlay() {
+		const auto live = engine();
+		if (!live || live->failed() || !_state->loaded) {
+			return;
+		}
+		live->setPlaying(!live->playing());
+	}
+
+	void skip(double seconds) {
+		const auto live = engine();
+		if (!live || !_state->loaded) {
+			return;
+		}
+		const auto target = std::clamp(
+			live->position() + seconds * kRate,
+			0.,
+			totalFrames() - 2.);
+		live->seek(target);
+	}
+
+	void pushLoopPoints() {
+		if (const auto live = engine()) {
+			live->setLoopPoints(_state->loopA, _state->loopB);
+		}
+	}
+
+	void markA() {
+		const auto live = engine();
+		if (!live || !_state->loaded) {
+			return;
+		}
+		if (_state->loopA >= 0.) {
+			_state->loopA = -1.;
+			_state->loopB = -1.;
+		} else {
+			_state->loopA = live->position();
+			_state->loopB = -1.;
+		}
+		pushLoopPoints();
+	}
+
+	void markB() {
+		const auto live = engine();
+		if (!live || !_state->loaded) {
+			return;
+		}
+		if (_state->loopB >= 0.) {
+			_state->loopB = -1.;
+		} else if (_state->loopA >= 0.
+			&& live->position() > _state->loopA + kRate / 2) {
+			_state->loopB = live->position();
+		}
+		pushLoopPoints();
+	}
+
+	void toggleLoop() {
+		_state->loop = !_state->loop;
+		if (const auto live = engine()) {
+			live->setLoop(_state->loop);
+		}
+	}
+
+	void applyPreset(const float (&gains)[5]) {
+		for (auto i = 0; i != 5; ++i) {
+			_state->params.eq[i] = gains[i];
+		}
+		paramsChanged();
+	}
+
+	[[nodiscard]] bool presetActive(const float (&gains)[5]) const {
+		for (auto i = 0; i != 5; ++i) {
+			if (std::abs(_state->params.eq[i] - gains[i]) > 0.05f) {
+				return false;
+			}
+		}
+		return true;
+	}
 
 	void buildItems() {
 		auto &p = _state->params;
 		const auto left = 36;
 		const auto width = kStudioWidth - 2 * left;
-		_items.push_back({
-			.kind = Kind::Close,
-			.rect = QRect(kStudioWidth - 70, 30, 32, 32),
-			.action = _callbacks.close,
-		});
+
+		add(Kind::Close, QRect(kStudioWidth - 70, 30, 32, 32), QString())
+			.action = _callbacks.close;
+
+		// Transport.
+		{
+			auto &seek = add(
+				Kind::Seek,
+				QRect(left + 46, 222, width - 92, 22),
+				QString());
+			seek.min = 0.f;
+			seek.max = 1.f;
+		}
+		{
+			auto &item = add(
+				Kind::Chip,
+				QRect(left, 258, 72, 40),
+				u"Takror"_q);
+			item.action = [=] { toggleLoop(); };
+			item.selected = [=] { return _state->loop; };
+		}
+		{
+			auto &item = add(
+				Kind::Button,
+				QRect(left + 88, 258, 66, 40),
+				u"-10 s"_q);
+			item.action = [=] { skip(-10.); };
+		}
+		add(Kind::Play, QRect(kStudioWidth / 2 - 32, 250, 64, 56), QString())
+			.action = [=] { togglePlay(); };
+		{
+			auto &item = add(
+				Kind::Button,
+				QRect(kStudioWidth - left - 154, 258, 66, 40),
+				u"+10 s"_q);
+			item.action = [=] { skip(10.); };
+		}
+		{
+			auto &item = add(
+				Kind::Chip,
+				QRect(kStudioWidth - left - 74, 258, 36, 40),
+				u"A"_q);
+			item.action = [=] { markA(); };
+			item.selected = [=] { return _state->loopA >= 0.; };
+		}
+		{
+			auto &item = add(
+				Kind::Chip,
+				QRect(kStudioWidth - left - 34, 258, 36, 40),
+				u"B"_q);
+			item.action = [=] { markB(); };
+			item.selected = [=] { return _state->loopB >= 0.; };
+		}
+		{
+			auto &item = add(
+				Kind::Slider,
+				QRect(left, 308, width, 34),
+				u"Ovoz balandligi"_q);
+			item.value = &_state->volume;
+			item.min = 0.f;
+			item.max = 1.f;
+			item.unit = u"%"_q;
+		}
+
+		// Tabs.
+		const char *tabTitles[] = {
+			"Effektlar",
+			"Equalizer",
+			"Vizualizer",
+			"Eksport",
+		};
+		const auto tabWidth = (width - 3 * 8) / 4;
+		for (auto i = 0; i != 4; ++i) {
+			auto &item = add(
+				Kind::Chip,
+				QRect(left + i * (tabWidth + 8), 350, tabWidth, 38),
+				QString::fromUtf8(tabTitles[i]));
+			item.action = [=] {
+				_tab = i;
+			};
+			item.selected = [=] { return _tab == i; };
+		}
+
+		// Tab 0: effects.
 		struct Toggle {
 			const char *title;
 			bool *flag;
@@ -894,16 +1443,16 @@ private:
 		};
 		const auto chipWidth = (width - 10) / 2;
 		for (auto i = 0; i != 7; ++i) {
-			_items.push_back({
-				.kind = Kind::Toggle,
-				.rect = QRect(
+			auto &item = add(
+				Kind::Toggle,
+				QRect(
 					left + (i % 2) * (chipWidth + 10),
-					158 + (i / 2) * 44,
+					402 + (i / 2) * 44,
 					chipWidth,
 					38),
-				.title = QString::fromUtf8(toggles[i].title),
-				.flag = toggles[i].flag,
-			});
+				QString::fromUtf8(toggles[i].title),
+				0);
+			item.flag = toggles[i].flag;
 		}
 		struct Slider {
 			const char *title;
@@ -913,58 +1462,122 @@ private:
 			const char *unit;
 		};
 		const Slider sliders[] = {
-			{ "Bass", &p.bassDb, 0.f, 18.f, " dB" },
+			{ "Bass kuchi", &p.bassDb, 0.f, 18.f, " dB" },
 			{ "8D tezligi", &p.eightHz, 0.05f, 0.6f, " Hz" },
 			{ "Echo vaqti", &p.echoTime, 0.1f, 1.f, " s" },
-			{ "Reverb", &p.reverbMix, 0.f, 1.f, "" },
+			{ "Reverb miqdori", &p.reverbMix, 0.f, 1.f, "" },
 		};
 		for (auto i = 0; i != 4; ++i) {
-			_items.push_back({
-				.kind = Kind::Slider,
-				.rect = QRect(left, 338 + i * 38, width, 34),
-				.title = QString::fromUtf8(sliders[i].title),
-				.value = sliders[i].value,
-				.min = sliders[i].min,
-				.max = sliders[i].max,
-				.unit = QString::fromUtf8(sliders[i].unit),
-			});
+			auto &item = add(
+				Kind::Slider,
+				QRect(left, 584 + i * 40, width, 34),
+				QString::fromUtf8(sliders[i].title),
+				0);
+			item.value = sliders[i].value;
+			item.min = sliders[i].min;
+			item.max = sliders[i].max;
+			item.unit = QString::fromUtf8(sliders[i].unit);
+		}
+
+		// Tab 1: equalizer.
+		struct Preset {
+			const char *title;
+			float gains[5];
+		};
+		static const Preset presets[] = {
+			{ "Tekis", { 0.f, 0.f, 0.f, 0.f, 0.f } },
+			{ "Bass+", { 8.f, 5.f, 0.f, -1.f, -2.f } },
+			{ "Vokal", { -3.f, -1.f, 4.f, 3.f, -1.f } },
+			{ "Yuqori+", { -2.f, -1.f, 0.f, 4.f, 7.f } },
+			{ "Rok", { 5.f, 3.f, -2.f, 3.f, 5.f } },
+			{ "Pop", { -1.f, 3.f, 4.f, 2.f, -1.f } },
+		};
+		const auto presetWidth = (width - 2 * 10) / 3;
+		for (auto i = 0; i != 6; ++i) {
+			auto &item = add(
+				Kind::Chip,
+				QRect(
+					left + (i % 3) * (presetWidth + 10),
+					402 + (i / 3) * 44,
+					presetWidth,
+					38),
+				QString::fromUtf8(presets[i].title),
+				1);
+			item.action = [=] { applyPreset(presets[i].gains); };
+			item.selected = [=] { return presetActive(presets[i].gains); };
 		}
 		const auto eqWidth = width / 5;
 		for (auto i = 0; i != 5; ++i) {
-			_items.push_back({
-				.kind = Kind::Eq,
-				.rect = QRect(left + i * eqWidth, 516, eqWidth, 78),
-				.title = QString::fromLatin1(kEqTitles[i]),
-				.value = &p.eq[i],
-				.min = -12.f,
-				.max = 12.f,
-				.unit = u" dB"_q,
-			});
+			auto &item = add(
+				Kind::Eq,
+				QRect(left + i * eqWidth, 502, eqWidth, 210),
+				QString::fromLatin1(kEqTitles[i]),
+				1);
+			item.value = &p.eq[i];
+			item.min = -12.f;
+			item.max = 12.f;
+			item.unit = u" dB"_q;
 		}
-		const auto half = (width - 10) / 2;
-		_items.push_back({
-			.kind = Kind::Button,
-			.rect = QRect(left, 606, half, 42),
-			.title = u"Eshitib ko'rish"_q,
-			.action = _callbacks.preview,
-		});
-		_items.push_back({
-			.kind = Kind::Button,
-			.rect = QRect(left + half + 10, 606, half, 42),
-			.title = u"Ulashish"_q,
-			.action = _callbacks.share,
-		});
-		_items.push_back({
-			.kind = Kind::Primary,
-			.rect = QRect(left, 656, width, 46),
-			.title = u"Saved Messages'ga yuklash"_q,
-			.action = _callbacks.save,
-		});
+
+		// Tab 2: visualizer look.
+		const char *styles[] = { "Ustunlar", "Ko'zgu", "To'lqin", "Nuqtalar" };
+		const auto styleWidth = (width - 10) / 2;
+		for (auto i = 0; i != 4; ++i) {
+			auto &item = add(
+				Kind::Chip,
+				QRect(
+					left + (i % 2) * (styleWidth + 10),
+					430 + (i / 2) * 44,
+					styleWidth,
+					38),
+				QString::fromUtf8(styles[i]),
+				2);
+			item.action = [=] { _state->vizStyle = i; };
+			item.selected = [=] { return _state->vizStyle == i; };
+		}
+		const char *colors[] = {
+			"Shisha",
+			"Binafsha",
+			"Yashil",
+			"Olov",
+			"Kamalak",
+		};
+		const auto colorWidth = (width - 2 * 10) / 3;
+		for (auto i = 0; i != 5; ++i) {
+			auto &item = add(
+				Kind::Chip,
+				QRect(
+					left + (i % 3) * (colorWidth + 10),
+					566 + (i / 3) * 44,
+					colorWidth,
+					38),
+				QString::fromUtf8(colors[i]),
+				2);
+			item.action = [=] { _state->vizColor = i; };
+			item.selected = [=] { return _state->vizColor == i; };
+		}
+
+		// Tab 3: export.
+		add(
+			Kind::Button,
+			QRect(left, 412, width, 46),
+			u"WAV qilib saqlash (Yuklamalar papkasi)"_q,
+			3).action = _callbacks.exportWav;
+		add(
+			Kind::Primary,
+			QRect(left, 468, width, 50),
+			u"Saved Messages'ga yuklash"_q,
+			3).action = _callbacks.save;
+		add(
+			Kind::Button,
+			QRect(left, 528, width, 46),
+			u"Boshqa chatga ulashish"_q,
+			3).action = _callbacks.share;
 	}
 
 	[[nodiscard]] int itemAt(QPoint point) const {
 		for (auto i = int(_items.size()) - 1; i >= 0; --i) {
-			if (_items[i].rect.contains(point)) {
+			if (visible(_items[i]) && _items[i].rect.contains(point)) {
 				return i;
 			}
 		}
@@ -978,6 +1591,12 @@ private:
 				item.rect.top() + 4,
 				8,
 				item.rect.height() - 34);
+		} else if (item.kind == Kind::Seek) {
+			return QRect(
+				item.rect.left(),
+				item.rect.center().y() - 4,
+				item.rect.width(),
+				8);
 		}
 		return QRect(item.rect.left() + 4, item.rect.top() + 22, item.rect.width() - 8, 8);
 	}
@@ -991,6 +1610,19 @@ private:
 
 	void setFromPosition(const Item &item, QPoint point) {
 		const auto track = trackRect(item);
+		if (item.kind == Kind::Seek) {
+			const auto live = engine();
+			if (!live || !_state->loaded) {
+				return;
+			}
+			_seekFrac = std::clamp(
+				double(point.x() - track.left()) / track.width(),
+				0.,
+				1.);
+			_seeking = true;
+			live->seek(_seekFrac * (totalFrames() - 2.));
+			return;
+		}
 		auto frac = 0.f;
 		if (item.kind == Kind::Eq) {
 			frac = 1.f - std::clamp(
@@ -1007,7 +1639,7 @@ private:
 		if (item.kind == Kind::Eq && std::abs(*item.value) < 0.6f) {
 			*item.value = 0.f; // Snap to flat.
 		}
-		_state->dirty = true;
+		paramsChanged();
 	}
 
 	[[nodiscard]] QColor accent() const {
@@ -1102,6 +1734,26 @@ private:
 		auto p = QPainter(&_panelPix);
 		p.setRenderHint(QPainter::Antialiasing);
 		paintGlass(p, QRect(14, 14, kStudioWidth - 28, kStudioHeight - 28), 30, false);
+		paintGlass(p, _vizRect, 20, false);
+	}
+
+	void tick() {
+		const auto live = engine();
+		const auto playing = live && live->playing();
+		if (playing != _lastPlaying) {
+			_lastPlaying = playing;
+			update();
+		}
+		if (playing) {
+			_decay = 30;
+		}
+		if (_decay > 0 || _seeking) {
+			if (_decay > 0) {
+				--_decay;
+			}
+			update(_vizRect);
+			update(_seekArea);
+		}
 	}
 
 	void paintHeader(QPainter &p) {
@@ -1127,13 +1779,13 @@ private:
 		p.setPen(Qt::white);
 		p.setFont(StudioFont(20, true));
 		p.drawText(QRect(92, 30, kStudioWidth - 92 - 80, 26), Qt::AlignLeft | Qt::AlignVCenter, u"Musiqiy ijodxona"_q);
-		const auto small = StudioFont(13);
-		p.setFont(small);
+		const auto nameFont = StudioFont(13);
+		p.setFont(nameFont);
 		p.setPen(QColor(255, 255, 255, 225));
 		p.drawText(
 			QRect(92, 58, kStudioWidth - 92 - 40, 18),
 			Qt::AlignLeft | Qt::AlignVCenter,
-			QFontMetrics(small).elidedText(
+			QFontMetrics(nameFont).elidedText(
 				_state->name,
 				Qt::ElideRight,
 				kStudioWidth - 92 - 40));
@@ -1145,33 +1797,187 @@ private:
 			_state->status.current());
 	}
 
-	void paintSpectrum(QPainter &p) {
-		const auto &bars = _state->spectrum;
-		const auto left = 36;
-		const auto width = kStudioWidth - 2 * left;
-		const auto count = 28;
-		const auto step = width / float(count);
-		const auto base = 148.f;
-		const auto color = accent().lighter(135);
+	[[nodiscard]] QColor vizColor(float frac) const {
+		switch (_state->vizColor) {
+		case 1: return QColor(176, 128, 255);
+		case 2: return QColor(70, 225, 160);
+		case 3: return QColor::fromHsvF(
+			0.02f + 0.10f * (1.f - frac),
+			0.85f,
+			1.f);
+		case 4: return QColor::fromHsvF(
+			std::clamp(frac, 0.f, 0.99f),
+			0.65f,
+			1.f);
+		}
+		return accent().lighter(135);
+	}
+
+	void paintViz(QPainter &p) {
+		const auto live = engine();
+		const auto area = _vizRect.adjusted(16, 12, -16, -12);
+		const auto step = area.width() / float(kBands);
+		const auto value = [&](int i) {
+			return live ? live->band(i) : 0.f;
+		};
 		p.save();
 		p.setRenderHint(QPainter::Antialiasing);
 		p.setPen(Qt::NoPen);
-		for (auto i = 0; i != count; ++i) {
-			const auto value = (i < int(bars.size())) ? bars[i] : 0.f;
-			const auto h = 6.f + value * 40.f;
-			const auto x = left + i * step + 2.f;
-			const auto bar = QRectF(x, base - h, step - 4.f, h);
-			auto fill = QLinearGradient(bar.topLeft(), bar.bottomLeft());
-			auto top = color;
-			top.setAlpha(235);
-			auto bottom = color;
-			bottom.setAlpha(80);
+		switch (_state->vizStyle) {
+		case 1: { // mirror
+			const auto cy = area.center().y();
+			for (auto i = 0; i != kBands; ++i) {
+				const auto h = 3.f + value(i) * (area.height() / 2.f - 3.f);
+				const auto bar = QRectF(
+					area.left() + i * step + 2.f,
+					cy - h,
+					step - 4.f,
+					h * 2.f);
+				auto color = vizColor(i / float(kBands));
+				color.setAlpha(220);
+				p.setBrush(color);
+				p.drawRoundedRect(bar, (step - 4.f) / 2., (step - 4.f) / 2.);
+			}
+		} break;
+		case 2: { // wave
+			auto path = QPainterPath();
+			const auto base = double(area.bottom());
+			path.moveTo(area.left(), base);
+			for (auto i = 0; i != kBands; ++i) {
+				const auto x = area.left() + (i + 0.5) * step;
+				const auto y = base - 4. - value(i) * (area.height() - 8.);
+				path.lineTo(x, y);
+			}
+			path.lineTo(area.right(), base);
+			path.closeSubpath();
+			auto fill = QLinearGradient(
+				QPointF(0, area.top()),
+				QPointF(0, area.bottom()));
+			auto top = vizColor(0.35f);
+			top.setAlpha(210);
+			auto bottom = vizColor(0.35f);
+			bottom.setAlpha(30);
 			fill.setColorAt(0., top);
 			fill.setColorAt(1., bottom);
 			p.setBrush(fill);
-			p.drawRoundedRect(bar, (step - 4.f) / 2., (step - 4.f) / 2.);
+			p.drawPath(path);
+			p.setBrush(Qt::NoBrush);
+			auto line = vizColor(0.6f);
+			line.setAlpha(240);
+			p.setPen(QPen(line, 2.));
+			p.drawPath(path);
+		} break;
+		case 3: { // dots
+			const auto rows = 8;
+			const auto cell = area.height() / float(rows);
+			for (auto i = 0; i != kBands; ++i) {
+				const auto lit = int(std::round(value(i) * rows));
+				for (auto j = 0; j != rows; ++j) {
+					auto color = vizColor(i / float(kBands));
+					color.setAlpha((j < lit) ? 235 : 40);
+					p.setBrush(color);
+					p.drawEllipse(QPointF(
+						area.left() + (i + 0.5f) * step,
+						area.bottom() - (j + 0.5f) * cell),
+						std::min(step, cell) * 0.32,
+						std::min(step, cell) * 0.32);
+				}
+			}
+		} break;
+		default: { // bars
+			const auto base = float(area.bottom());
+			for (auto i = 0; i != kBands; ++i) {
+				const auto h = 4.f + value(i) * (area.height() - 4.f);
+				const auto bar = QRectF(
+					area.left() + i * step + 2.f,
+					base - h,
+					step - 4.f,
+					h);
+				auto fill = QLinearGradient(bar.topLeft(), bar.bottomLeft());
+				auto top = vizColor(i / float(kBands));
+				top.setAlpha(235);
+				auto bottom = vizColor(i / float(kBands));
+				bottom.setAlpha(80);
+				fill.setColorAt(0., top);
+				fill.setColorAt(1., bottom);
+				p.setBrush(fill);
+				p.drawRoundedRect(bar, (step - 4.f) / 2., (step - 4.f) / 2.);
+			}
+		} break;
 		}
 		p.restore();
+		if (_state->bpm > 0) {
+			p.setFont(StudioFont(11, true));
+			p.setPen(QColor(255, 255, 255, 190));
+			p.drawText(
+				QRect(_vizRect.right() - 100, _vizRect.top() + 6, 90, 14),
+				Qt::AlignRight | Qt::AlignVCenter,
+				u"~"_q + QString::number(_state->bpm) + u" BPM"_q);
+		}
+	}
+
+	void paintTimes(QPainter &p) {
+		const auto total = totalFrames() / kRate;
+		const auto now = currentFrames() / kRate;
+		p.setFont(StudioFont(12, true));
+		p.setPen(Qt::white);
+		p.drawText(
+			QRect(_seekArea.left(), _seekArea.top() + 4, 44, 22),
+			Qt::AlignLeft | Qt::AlignVCenter,
+			Duration(float(now)));
+		p.drawText(
+			QRect(_seekArea.right() - 44, _seekArea.top() + 4, 44, 22),
+			Qt::AlignRight | Qt::AlignVCenter,
+			_state->loaded ? Duration(float(total)) : u"--:--"_q);
+		if (_state->loopA >= 0.) {
+			auto text = u"A "_q + Duration(float(_state->loopA / kRate));
+			if (_state->loopB > _state->loopA) {
+				text += u"  -  B "_q
+					+ Duration(float(_state->loopB / kRate));
+			}
+			p.setFont(StudioFont(11));
+			p.setPen(QColor(255, 255, 255, 200));
+			p.drawText(
+				QRect(_seekArea.left(), _seekArea.bottom() - 6, _seekArea.width(), 14),
+				Qt::AlignHCenter | Qt::AlignVCenter,
+				text);
+		}
+	}
+
+	void paintCaptions(QPainter &p) {
+		p.setFont(StudioFont(12, true));
+		p.setPen(QColor(255, 255, 255, 190));
+		const auto left = 36;
+		if (_tab == 1) {
+			p.drawText(QRect(left + 4, 480, 300, 16), Qt::AlignLeft | Qt::AlignVCenter, u"5 polosali equalizer"_q);
+		} else if (_tab == 2) {
+			p.drawText(QRect(left + 4, 404, 300, 18), Qt::AlignLeft | Qt::AlignVCenter, u"Uslub"_q);
+			p.drawText(QRect(left + 4, 540, 300, 18), Qt::AlignLeft | Qt::AlignVCenter, u"Rang"_q);
+		} else if (_tab == 3) {
+			p.setFont(StudioFont(12));
+			p.drawText(
+				QRect(left + 4, 590, kStudioWidth - 2 * left - 8, 60),
+				Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
+				u"Effektlar qo'llangan holda butun trek WAV qilib tayyorlanadi."_q);
+		}
+	}
+
+	void paintPlay(QPainter &p, const QRect &r, bool playing) {
+		paintGlass(p, r, r.height() / 2., true);
+		p.setPen(Qt::NoPen);
+		p.setBrush(Qt::white);
+		const auto c = QPointF(r.center());
+		if (playing) {
+			p.drawRoundedRect(QRectF(c.x() - 9., c.y() - 10., 6., 20.), 2., 2.);
+			p.drawRoundedRect(QRectF(c.x() + 3., c.y() - 10., 6., 20.), 2., 2.);
+		} else {
+			auto triangle = QPainterPath();
+			triangle.moveTo(c.x() - 7., c.y() - 11.);
+			triangle.lineTo(c.x() + 11., c.y());
+			triangle.lineTo(c.x() - 7., c.y() + 11.);
+			triangle.closeSubpath();
+			p.fillPath(triangle, Qt::white);
+		}
 	}
 
 	void paintItem(QPainter &p, int index) {
@@ -1187,6 +1993,10 @@ private:
 			const auto c = QPointF(r.center()) + QPointF(0.5, 0.5);
 			p.drawLine(c + QPointF(-5, -5), c + QPointF(5, 5));
 			p.drawLine(c + QPointF(-5, 5), c + QPointF(5, -5));
+		} break;
+		case Kind::Play: {
+			const auto live = engine();
+			paintPlay(p, r, live && live->playing());
 		} break;
 		case Kind::Toggle: {
 			const auto on = *item.flag;
@@ -1207,6 +2017,32 @@ private:
 				16.,
 				16.));
 		} break;
+		case Kind::Seek: {
+			const auto track = trackRect(item);
+			const auto frac = std::clamp(
+				currentFrames() / totalFrames(),
+				0.,
+				1.);
+			paintGlass(p, track, 4, false);
+			const auto fillWidth = std::max(8, int(track.width() * frac));
+			paintGlass(p, QRect(track.left(), track.top(), fillWidth, 8), 4, true);
+			if (_state->loopA >= 0.) {
+				p.setPen(QPen(Qt::white, 2.));
+				const auto ax = track.left()
+					+ int(track.width() * (_state->loopA / totalFrames()));
+				p.drawLine(ax, track.top() - 5, ax, track.bottom() + 5);
+				if (_state->loopB > _state->loopA) {
+					const auto bx = track.left()
+						+ int(track.width() * (_state->loopB / totalFrames()));
+					p.drawLine(bx, track.top() - 5, bx, track.bottom() + 5);
+				}
+			}
+			paintKnob(p, QRect(
+				track.left() + int(track.width() * frac) - 11,
+				track.center().y() - 11,
+				22,
+				22));
+		} break;
 		case Kind::Slider:
 		case Kind::Eq: {
 			const auto track = trackRect(item);
@@ -1220,10 +2056,13 @@ private:
 					item.title);
 				p.setFont(StudioFont(13, true));
 				p.setPen(Qt::white);
+				const auto shown = (item.unit == u"%"_q)
+					? (QString::number(int(std::round(*item.value * 100.f))) + '%')
+					: (QString::number(*item.value, 'f', 2) + item.unit);
 				p.drawText(
 					QRect(r.center().x(), r.top(), r.width() / 2 - 4, 18),
 					Qt::AlignRight | Qt::AlignVCenter,
-					QString::number(*item.value, 'f', 2) + item.unit);
+					shown);
 				paintGlass(p, track, 4, false);
 				const auto fillWidth = std::max(8, int(track.width() * frac));
 				paintGlass(p, QRect(track.left(), track.top(), fillWidth, 8), 4, true);
@@ -1253,6 +2092,13 @@ private:
 					QString::number(int(std::round(*item.value))));
 			}
 		} break;
+		case Kind::Chip: {
+			const auto on = item.selected && item.selected();
+			paintGlass(p, r, r.height() / 2., on);
+			p.setFont(StudioFont(13, on));
+			p.setPen(Qt::white);
+			p.drawText(r, Qt::AlignCenter, item.title);
+		} break;
 		case Kind::Button:
 		case Kind::Primary: {
 			const auto primary = (item.kind == Kind::Primary);
@@ -1262,13 +2108,17 @@ private:
 			p.drawText(r, Qt::AlignCenter, item.title);
 		} break;
 		}
-		if (hover && item.kind != Kind::Slider && item.kind != Kind::Eq) {
+		if (hover
+			&& item.kind != Kind::Slider
+			&& item.kind != Kind::Eq
+			&& item.kind != Kind::Seek) {
 			p.setPen(Qt::NoPen);
 			p.setBrush(QColor(255, 255, 255, (_pressed == index) ? 40 : 22));
-			p.drawRoundedRect(
-				QRectF(r),
-				(item.kind == Kind::Close) ? r.width() / 2. : r.height() / 2.,
-				(item.kind == Kind::Close) ? r.width() / 2. : r.height() / 2.);
+			const auto radius = (item.kind == Kind::Close
+				|| item.kind == Kind::Play)
+				? r.width() / 2.
+				: r.height() / 2.;
+			p.drawRoundedRect(QRectF(r), radius, radius);
 		}
 		p.restore();
 	}
@@ -1276,14 +2126,22 @@ private:
 	const std::shared_ptr<State> _state;
 	const Callbacks _callbacks;
 	std::vector<Item> _items;
+	base::Timer _timer;
 	QPixmap _wallPix;
 	QPixmap _panelPix;
 	QImage _wall;
 	QImage _blur;
+	const QRect _vizRect = QRect(36, 104, kStudioWidth - 72, 104);
+	const QRect _seekArea = QRect(36, 214, kStudioWidth - 72, 40);
 	int _panelLevel = -1;
 	int _hover = -1;
 	int _pressed = -1;
 	int _drag = -1;
+	int _tab = 0;
+	int _decay = 0;
+	bool _lastPlaying = false;
+	bool _seeking = false;
+	double _seekFrac = 0.;
 
 };
 
@@ -1301,17 +2159,17 @@ void LabBox(
 	box->lifetime().add([=] {
 		state->closed = true;
 		state->cancel = true;
+		state->engine = nullptr; // Stops the sound.
 	});
 	const auto session = &controller->session();
 	const auto weak = base::make_weak(controller);
 
-	// Decode in the background.
+	// Decode in the background, then start playing at once.
 	crl::async([=] {
 		auto pcm = Pcm();
 		const auto ok = Decode(state->path, pcm, state->cancel);
 		auto bpm = ok ? EstimateBpm(pcm) : 0;
-		auto spectrum = ok ? MakeSpectrum(pcm) : std::vector<float>();
-		crl::on_main([=, pcm = std::move(pcm), spectrum = std::move(spectrum)]() mutable {
+		crl::on_main([=, pcm = std::move(pcm)]() mutable {
 			if (state->closed) {
 				return;
 			}
@@ -1320,24 +2178,34 @@ void LabBox(
 				return;
 			}
 			state->pcm = std::move(pcm);
-			state->spectrum = std::move(spectrum);
 			state->bpm = bpm;
 			state->loaded = true;
-			state->status = u"Tayyor: "_q
-				+ Duration(state->pcm.seconds())
-				+ (bpm ? (u"  •  ~"_q + QString::number(bpm) + u" BPM"_q) : QString());
+			auto engine = std::make_unique<Engine>(&state->pcm);
+			if (engine->failed()) {
+				state->status = u"Audio qurilma ochilmadi"_q;
+			} else {
+				engine->setParams(state->params);
+				engine->setVolume(state->volume);
+				engine->setPlaying(true);
+				state->status = u"Tayyor: "_q
+					+ Duration(state->pcm.seconds())
+					+ (bpm
+						? (u"  •  ~"_q + QString::number(bpm) + u" BPM"_q)
+						: QString());
+			}
+			state->engine = std::move(engine);
 		});
 	});
 
-	// Render to a WAV file, then hand the path to `done`.
-	const auto render = [=](bool preview, Fn<void(QString)> done) {
+	// Render the whole track with the effects to a WAV file.
+	const auto render = [=](bool toDownloads, Fn<void(QString)> done) {
 		if (!state->loaded) {
 			box->showToast(u"Musiqa hali o'qilmoqda"_q);
 			return;
 		} else if (state->busy) {
 			return;
 		}
-		const auto reuse = !preview
+		const auto reuse = !toDownloads
 			&& !state->dirty
 			&& !state->output.isEmpty()
 			&& QFile::exists(state->output);
@@ -1348,20 +2216,22 @@ void LabBox(
 		state->busy = true;
 		state->status = u"Tayyorlanmoqda: 0%"_q;
 		const auto params = state->params;
-		const auto base = WorkDir() + '/' + SafeName(state->name);
-		const auto target = preview
-			? WorkDir() + u"/preview.wav"_q
-			: base + u" (vibe).wav"_q;
+		const auto folder = toDownloads
+			? (QStandardPaths::writableLocation(
+				QStandardPaths::DownloadLocation)
+				+ u"/ParadoksMusicLab"_q)
+			: WorkDir();
+		const auto target = folder
+			+ '/'
+			+ SafeName(state->name)
+			+ u" (vibe).wav"_q;
 		crl::async([=] {
-			const auto frames = preview
-				? int64(kPreviewSeconds) * kRate
-				: state->pcm.frames();
 			const auto ok = WriteWav(
 				target,
 				state->pcm,
 				params,
 				0,
-				frames,
+				state->pcm.frames(),
 				[=](int percent) {
 					crl::on_main([=] {
 						if (!state->closed) {
@@ -1380,7 +2250,7 @@ void LabBox(
 					state->status = u"Tayyorlab bo'lmadi"_q;
 					return;
 				}
-				if (!preview) {
+				if (!toDownloads) {
 					state->output = target;
 					state->dirty = false;
 				}
@@ -1391,9 +2261,10 @@ void LabBox(
 	};
 
 	auto callbacks = GlassStudio::Callbacks();
-	callbacks.preview = [=] {
+	callbacks.exportWav = [=] {
 		render(true, [=](QString file) {
-			File::Launch(file);
+			File::ShowInFolder(file);
+			box->showToast(u"WAV Yuklamalar papkasiga saqlandi"_q);
 		});
 	};
 	callbacks.save = [=] {
