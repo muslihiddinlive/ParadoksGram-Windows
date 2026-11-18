@@ -815,14 +815,19 @@ bool AboutView::refresh() {
 		return false;
 	}
 	_version = version;
-	if (_history->peer->isBot() && _history->peer->isForum()) {
-		_history->session().data().newItemAdded(
-		) | rpl::on_next([=](not_null<HistoryItem*> item) {
-			if (item->history() == _history) {
-				_destroyRequests.fire({});
-			}
-		}, lifetime());
-	}
+	// PARADOKS TUZATISH: forum-bot bo'lmagan oddiy botlarda (masalan
+	// BotFather) ham xuddi shu obuna kerak edi - aks holda /start
+	// bosilib haqiqiy javob xabari kelgandan keyin ham bu "bot nima
+	// qila oladi" kartasi history ichida qolib, yangi xabar ustiga
+	// ustma-ust tushib (overlap) ko'rinardi. Rasmiy Telegram Desktop
+	// manbasida ham bu obuna faqat forum-botlar uchun bor edi - shu
+	// yerda uni BARCHA botlar uchun qo'shamiz.
+	_history->session().data().newItemAdded(
+	) | rpl::on_next([=](not_null<HistoryItem*> item) {
+		if (item->history() == _history) {
+			_destroyRequests.fire({});
+		}
+	}, lifetime());
 	setItem(makeAboutBot(info), nullptr);
 	return true;
 }
