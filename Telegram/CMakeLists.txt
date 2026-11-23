@@ -1760,6 +1760,8 @@ PRIVATE
     paradoks/paradoks_webdev.h
     paradoks/paradoks_config.cpp
     paradoks/paradoks_config.h
+    paradoks/paradoks_backend.cpp
+    paradoks/paradoks_backend.h
     paradoks/paradoks_broadcast.cpp
     paradoks/paradoks_broadcast.h
     paradoks/paradoks_clone.cpp

@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_icon.h"
 #include "paradoks/paradoks_privacy.h"
 #include "paradoks/paradoks_store.h"
+#include "paradoks/paradoks_backend.h"
 #include "paradoks/paradoks_backup.h"
 #include "paradoks/paradoks_clone.h"
 #include "paradoks/paradoks_report.h"
@@ -54,6 +55,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/slide_wrap.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/fields/input_field.h"
+#include "ui/widgets/fields/password_input.h"
 #include "ui/rp_widget.h"
 #include "core/file_utilities.h"
 #include "styles/style_boxes.h"
@@ -1109,6 +1111,116 @@ void AddBackupSection(
 		"tanlagan shaxsiy kanal yoki guruhga jimgina forward qilinadi. "
 		"Yuboruvchi o'chirsa ham nusxa qoladi. Faqat shaxsiy chat va "
 		"guruhlardagi, forward taqiqlanmagan xabarlar yuboriladi."_q);
+
+	AddSection(container, u"Server orqali zaxira (istalgan qurilmadan)"_q);
+	const auto backendUrlLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(
+			Backend::Url().isEmpty()
+				? u"Server manzili: kiritilmagan"_q
+				: u"Server manzili: "_q + Backend::Url());
+	const auto backendUrlButton = AddRow(
+		box,
+		backendUrlLabel->value(),
+		&st::menuIconChannel);
+	backendUrlButton->setClickedCallback([=] {
+		controller->show(Box([=](not_null<Ui::GenericBox*> inner) {
+			inner->setTitle(rpl::single(u"Server manzili"_q));
+			const auto input = inner->addRow(
+				object_ptr<Ui::InputField>(
+					inner,
+					st::defaultInputField,
+					Ui::InputField::Mode::SingleLine,
+					rpl::single(u"https://sizning-app.onrender.com"_q)),
+				st::boxRowPadding);
+			input->setText(Backend::Url());
+			inner->addButton(rpl::single(u"Saqlash"_q), [=] {
+				Backend::SetUrl(input->getLastText());
+				*backendUrlLabel = Backend::Url().isEmpty()
+					? u"Server manzili: kiritilmagan"_q
+					: u"Server manzili: "_q + Backend::Url();
+				inner->closeBox();
+			});
+			inner->addButton(tr::lng_cancel(), [=] { inner->closeBox(); });
+		}));
+	});
+
+	const auto backendStatusLabel = box->lifetime().make_state<
+		rpl::variable<QString>>(
+			Backend::Connected(session)
+				? u"Holat: ulangan"_q
+				: u"Holat: ulanmagan"_q);
+	const auto backendStatusButton = AddRow(
+		box,
+		backendStatusLabel->value(),
+		&st::menuIconChannel);
+	backendStatusButton->setClickedCallback([=] {
+		Backend::CheckStatus(session, [=](bool connected) {
+			*backendStatusLabel = connected
+				? u"Holat: ulangan"_q
+				: u"Holat: ulanmagan"_q;
+		});
+	});
+
+	const auto connectButton = AddRow(
+		box,
+		rpl::single(u"Serverga ulash"_q),
+		&st::menuIconChannel);
+	connectButton->setClickedCallback([=] {
+		const auto target = DbTarget(session);
+		if (!target) {
+			*backendStatusLabel = u"Avval yuqorida \"Media bazasi\" chatini tanlang"_q;
+			return;
+		}
+		*backendStatusLabel = u"Ulanmoqda..."_q;
+		Backend::Connect(
+			session,
+			target,
+			[=](QString status) { *backendStatusLabel = status; },
+			[=] { *backendStatusLabel = u"Holat: ulangan"_q; },
+			[=] {
+				controller->show(Box([=](not_null<Ui::GenericBox*> inner) {
+					inner->setTitle(rpl::single(u"Bulut parol"_q));
+					const auto input = inner->addRow(
+						object_ptr<Ui::PasswordInput>(
+							inner,
+							st::defaultInputField,
+							rpl::single(u"Parol"_q)),
+						st::boxRowPadding);
+					inner->addButton(rpl::single(u"Yuborish"_q), [=] {
+						const auto password = input->getLastText();
+						Backend::SubmitPassword(
+							session,
+							password,
+							[=] { *backendStatusLabel = u"Holat: ulangan"_q; },
+							[=](QString error) {
+								*backendStatusLabel = error;
+							});
+						inner->closeBox();
+					});
+					inner->addButton(tr::lng_cancel(), [=] { inner->closeBox(); });
+				}));
+			},
+			[=](QString error) { *backendStatusLabel = error; });
+	});
+
+	const auto disconnectButton = AddRow(
+		box,
+		rpl::single(u"Serverdan uzish"_q),
+		&st::menuIconDelete);
+	disconnectButton->setClickedCallback([=] {
+		Backend::Disconnect(session, [=](bool ok) {
+			*backendStatusLabel = u"Holat: ulanmagan"_q;
+		});
+	});
+	AddText(
+		box,
+		u"Bu - serverda (siz deploy qilgan \"ParadoksGram Media Backend\"), "
+		"akkauntga bog'langan, qurilmadan mustaqil sessiya orqali ishlaydi: "
+		"xabarlar (matnli va mediali) tanlangan \"Media bazasi\" chatiga "
+		"ilova/qurilma o'chiq bo'lsa ham forward qilinadi, va o'chirilgan "
+		"xabarlar istalgan qurilmadan (boshqasidan login qilingan bo'lsa "
+		"ham) tiklanadi - chunki moslashtirish xaritasi shu serverda "
+		"saqlanadi, faqat shu qurilmada emas."_q);
 
 	AddSection(container, u"Diagnostika"_q);
 	const auto logButton = AddRow(box, rpl::single(u"Diagnostika jurnalini nusxalash"_q), &st::menuIconCopy);

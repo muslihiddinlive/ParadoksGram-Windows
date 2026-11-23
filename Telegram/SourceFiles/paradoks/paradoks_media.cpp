@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "paradoks/paradoks_media.h"
 
 #include "paradoks/paradoks_ads.h"
+#include "paradoks/paradoks_backend.h"
 #include "paradoks/paradoks_config.h"
 #include "paradoks/paradoks_debug.h"
 #include "paradoks/paradoks_privacy.h"
@@ -504,12 +505,44 @@ bool LoadDbCopyFirst(
 	if (!item || !item->media() || !IsDeleted(item)) {
 		return false;
 	}
-	const auto copy = DbCopyFor(
-		item->history()->peer->id.value,
-		item->id.bare);
-	Debug::Log(u"restore %1_%2: db copy %3"_q.arg(item->history()->peer->id.value).arg(item->id.bare).arg(copy ? u"known"_q : u"MISSING"_q));
+	const auto peerIdValue = item->history()->peer->id.value;
+	const auto itemIdBare = item->id.bare;
+	const auto copy = DbCopyFor(peerIdValue, itemIdBare);
+	Debug::Log(u"restore %1_%2: db copy %3"_q.arg(peerIdValue).arg(itemIdBare).arg(copy ? u"known"_q : u"MISSING"_q));
 	if (!copy) {
-		return false;
+		// PARADOKS: lokal xaritada yo'q - forward boshqa qurilmada yoki
+		// shu qurilma o'chiq paytida sodir bo'lgan bo'lishi mumkin (server
+		// orqali ulangan "media bazasi" bilan). Serverdagi xaritadan
+		// so'raymiz - topilsa lokalga ham yozib qo'yamiz (RememberCopy),
+		// shunda keyingi safar (va RestoreOrigin ham) darhol ishlaydi.
+		Debug::Log(u"restore: not in local map, asking backend"_q);
+		Backend::LookupCopy(
+			session,
+			PeerId(peerIdValue),
+			itemIdBare,
+			[=](PeerId targetPeer, int64 copyMsgId) {
+				RememberCopy(
+					Key(peerIdValue, itemIdBare),
+					Key(targetPeer.value, copyMsgId));
+				if (session->data().message(targetPeer, MsgId(copyMsgId))) {
+					if (done) {
+						done();
+					}
+					return;
+				}
+				const auto peer = session->data().peerLoaded(targetPeer);
+				if (!peer) {
+					return;
+				}
+				session->api().requestMessageData(
+					peer,
+					MsgId(copyMsgId),
+					done);
+			},
+			[] {
+				Debug::Log(u"restore: backend has no copy either"_q);
+			});
+		return true;
 	}
 	const auto peerId = PeerId(copy->first);
 	const auto msgId = MsgId(copy->second);
