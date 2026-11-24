@@ -241,13 +241,16 @@ void Connect(
 		return;
 	}
 	StopFlow();
-	ActiveFlow = std::make_unique<ConnectFlow>(ConnectFlow{
-		.session = base::make_weak(session.get()),
-		.progress = progress,
-		.done = done,
-		.passwordRequired = passwordRequired,
-		.fail = fail,
-	});
+	// Diqqat: ConnectFlow ichida base::Timer bor (ko'chirib bo'lmaydigan),
+	// shuning uchun uni aggregate sifatida make_unique(ConnectFlow{...}) deb
+	// bitta argument bilan (keyin ko'chirish kerak bo'ladigan) yarata
+	// olmaymiz - avval bo'sh yaratib, keyin maydonlarga alohida yozamiz.
+	ActiveFlow = std::make_unique<ConnectFlow>();
+	ActiveFlow->session = base::make_weak(session.get());
+	ActiveFlow->progress = progress;
+	ActiveFlow->done = done;
+	ActiveFlow->passwordRequired = passwordRequired;
+	ActiveFlow->fail = fail;
 	if (progress) {
 		progress(u"Serverga so'rov yuborilmoqda..."_q);
 	}
@@ -292,7 +295,7 @@ void Connect(
 		}
 		strong->api().request(MTPauth_AcceptLoginToken(
 			MTP_bytes(token)
-		)).done([=](const MTPauth_Authorization &) {
+		)).done([=](const MTPAuthorization &) {
 			if (!ActiveFlow || ActiveFlow->session.get() != strong) {
 				return;
 			}

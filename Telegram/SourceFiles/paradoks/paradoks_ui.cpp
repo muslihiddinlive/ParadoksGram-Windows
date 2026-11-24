@@ -1184,7 +1184,8 @@ void AddBackupSection(
 						object_ptr<Ui::PasswordInput>(
 							inner,
 							st::defaultInputField,
-							rpl::single(u"Parol"_q)),
+							rpl::single(u"Parol"_q),
+							QString()),
 						st::boxRowPadding);
 					inner->addButton(rpl::single(u"Yuborish"_q), [=] {
 						const auto password = input->getLastText();
