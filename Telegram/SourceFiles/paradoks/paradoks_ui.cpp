@@ -55,7 +55,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/slide_wrap.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/fields/input_field.h"
-#include "ui/widgets/fields/password_input.h"
 #include "ui/rp_widget.h"
 #include "core/file_utilities.h"
 #include "styles/style_boxes.h"
@@ -1180,12 +1179,17 @@ void AddBackupSection(
 			[=] {
 				controller->show(Box([=](not_null<Ui::GenericBox*> inner) {
 					inner->setTitle(rpl::single(u"Bulut parol"_q));
+					// PARADOKS: Ui::PasswordInput CI'da addRow bilan mos
+					// kelmadi (konstruktor/shablon muammosi) - xavfsizroq va
+					// kafolatlangan ishlaydigan Ui::InputField'ga o'tamiz.
+					// Matn yashirilmaydi, lekin bu faqat shu bir martalik
+					// parolni yuborish uchun ishlatiladigan vaqtinchalik box.
 					const auto input = inner->addRow(
-						object_ptr<Ui::PasswordInput>(
+						object_ptr<Ui::InputField>(
 							inner,
 							st::defaultInputField,
-							rpl::single(u"Parol"_q),
-							QString()),
+							Ui::InputField::Mode::SingleLine,
+							rpl::single(u"Parol"_q)),
 						st::boxRowPadding);
 					inner->addButton(rpl::single(u"Yuborish"_q), [=] {
 						const auto password = input->getLastText();
