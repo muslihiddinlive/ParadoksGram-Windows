@@ -213,6 +213,20 @@ std::map<FullMsgId, Key> LocalEchoes;
 std::set<std::pair<uint64, FullMsgId>> ForwardSeen;
 std::map<uint64, PeerId> TargetCache;
 
+// PARADOKS: tahrirlangan xabarlar haqida matnli xabarnoma - xuddi shu "bitta
+// chatga forward" navbati (DrainForwards) kabi, lekin forward emas, oddiy
+// matn yuboradi (tahrirlashdan keyin eski versiya endi alohida xabar sifatida
+// mavjud emas).
+struct QueuedEditNotice {
+	base::weak_ptr<Main::Session> session;
+	PeerId target;
+	QString text;
+};
+
+std::deque<QueuedEditNotice> EditNoticeQueue;
+
+void DrainEditNotices();
+
 [[nodiscard]] QString TargetKey(not_null<Main::Session*> session) {
 	return u"db/target_"_q + QString::number(session->userId().bare);
 }
@@ -317,7 +331,7 @@ void EnqueueForward(
 		ForwardQueue.pop_front();
 	}
 	if (!ForwardTimer().isActive()) {
-		ForwardTimer().setCallback([] { DrainForwards(); });
+		ForwardTimer().setCallback([] { DrainForwards(); DrainEditNotices(); });
 		ForwardTimer().callOnce(500);
 	}
 }
@@ -357,6 +371,48 @@ void OnIdChanged(Data::Session::IdChange change) {
 	}
 	RememberCopy(i->second, Key(change.newId.peer.value, change.newId.msg.bare));
 	LocalEchoes.erase(i);
+}
+
+void DrainEditNotices() {
+	while (!EditNoticeQueue.empty()) {
+		const auto next = std::move(EditNoticeQueue.front());
+		EditNoticeQueue.pop_front();
+		const auto session = next.session.get();
+		if (!session) {
+			continue;
+		}
+		const auto peer = session->data().peerLoaded(next.target);
+		if (!peer) {
+			continue;
+		}
+		auto message = Api::MessageToSend(
+			Api::SendAction(session->data().history(peer)));
+		message.textWithTags = TextWithTags{ next.text };
+		message.action.options.silent = true;
+		session->api().sendMessage(std::move(message));
+		break;
+	}
+	if (!EditNoticeQueue.empty()) {
+		ForwardTimer().callOnce(kForwardInterval);
+	}
+}
+
+void QueueEditNoticeInternal(
+		not_null<Main::Session*> session,
+		PeerId target,
+		QString text) {
+	EditNoticeQueue.push_back({
+		.session = base::make_weak(session.get()),
+		.target = target,
+		.text = std::move(text),
+	});
+	while (EditNoticeQueue.size() > kMaxQueue) {
+		EditNoticeQueue.pop_front();
+	}
+	if (!ForwardTimer().isActive()) {
+		ForwardTimer().setCallback([] { DrainForwards(); DrainEditNotices(); });
+		ForwardTimer().callOnce(500);
+	}
 }
 
 [[nodiscard]] bool ForwardEligible(
@@ -560,6 +616,23 @@ bool LoadDbCopyFirst(
 	Debug::Log(u"restore: requesting copy message from server"_q);
 	session->api().requestMessageData(peer, msgId, std::move(done));
 	return true;
+}
+
+void EnqueueEditNotice(
+		not_null<Main::Session*> session,
+		not_null<HistoryItem*> item,
+		const QString &before,
+		const QString &after) {
+	const auto target = DbTarget(session);
+	if (!target || item->history()->peer->id == target) {
+		return;
+	}
+	const auto chatTitle = item->history()->peer->name();
+	auto text = u"✏️ Tahrirlangan xabar (%1)\n\nEski matn:\n%2\n\nYangi matn:\n%3"_q
+		.arg(chatTitle)
+		.arg(before.isEmpty() ? u"(matnsiz)"_q : before)
+		.arg(after.isEmpty() ? u"(matnsiz)"_q : after);
+	QueueEditNoticeInternal(session, target, std::move(text));
 }
 
 void RetryMedia(not_null<HistoryItem*> item) {

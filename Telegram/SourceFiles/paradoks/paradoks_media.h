@@ -55,6 +55,16 @@ void NotifyDeleted(not_null<HistoryItem*> item);
 	Fn<void()> done);
 // Tries again to save the media of a deleted message.
 void RetryMedia(not_null<HistoryItem*> item);
+
+// PARADOKS: xuddi media kabi - xabar tahrirlangandan keyin eski/yangi matn
+// "bitta chatga" (DbTarget) forward qilinadi. Qurilma ustida, serversiz -
+// Android'dagi bilan bir xil model. Faqat matn haqiqatan o'zgarganda
+// chaqiriladi (paradoks_store.cpp FinishEdit'dan).
+void EnqueueEditNotice(
+	not_null<Main::Session*> session,
+	not_null<HistoryItem*> item,
+	const QString &before,
+	const QString &after);
 [[nodiscard]] int64 SavedMediaBytes();
 void CleanupMedia();
 

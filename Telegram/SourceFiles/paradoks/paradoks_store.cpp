@@ -267,6 +267,13 @@ void FinishEdit(not_null<HistoryItem*> item, EditSnapshot &&before) {
 	if (!textChanged && !mediaChanged) {
 		return;
 	}
+	if (textChanged) {
+		// PARADOKS: media bazasidagi "bitta chatga forward" usuli bilan bir
+		// xil - foydalanuvchi so'ragani kabi, tahrirlangan matnlar ham shu
+		// chatga (qurilma ustida, serversiz) yuboriladi.
+		const auto session = &item->history()->session();
+		EnqueueEditNotice(session, item, before.text.text, now.text);
+	}
 	const auto key = KeyFor(item);
 	auto version = EditVersion{
 		.date = before.date,
